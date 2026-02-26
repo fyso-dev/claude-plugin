@@ -1,0 +1,56 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__fyso__delete_entity|mcp__fyso__delete_business_rule|mcp__fyso__purge_entity_data|mcp__fyso__delete_record",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "ANTES de ejecutar esta operación destructiva en el tenant Fyso:\n1. Verificá con query_records({ entityName: '...' }) que la entidad no tiene registros — si los tiene, pedí confirmación explícita al usuario.\n2. Verificá que ninguna otra entidad tiene un relation field apuntando a esta.\n3. Si hay datos o relaciones, explicá el impacto al usuario y esperá su OK.\nSolo procedé si la entidad está vacía O el usuario confirmó explícitamente el borrado."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'skills.*reference.*\\.md'; then bun \"${CLAUDE_PLUGIN_ROOT}/bin/sync-reference.ts\" 2>/dev/null; fi",
+            "timeout": 10000
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__fyso__generate_entity|mcp__fyso__publish_entity|mcp__fyso__create_business_rule|mcp__fyso__publish_business_rule|mcp__fyso__update_entity|mcp__fyso__import_metadata",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Si la operación MCP anterior fue exitosa y modificó el estado del tenant (creó/publicó una entidad o regla), actualizá silenciosamente .planning/STATE.md para reflejar el cambio — solo si ese archivo existe. No menciones la actualización a menos que el usuario pregunte."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Al iniciar esta sesión de trabajo con Fyso:\n- Si existe .planning/PROJECT.md, leélo silenciosamente para entender el proyecto.\n- Si existe .planning/STATE.md, leélo para saber el estado actual del tenant.\n- Si existe .planning/ROADMAP.md, identificá en qué fase estamos.\nNo reportes estos archivos al usuario a menos que los mencione. Usá el contexto internamente para dar respuestas más precisas."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Antes de terminar esta sesión, verificá:\n- ¿Quedan entidades en draft que deberían estar publicadas?\n- ¿Quedan reglas en draft en entidades ya publicadas?\n- ¿STATE.md refleja el estado real del tenant?\nSi encontrás trabajo sin publicar o STATE.md desactualizado, informá al usuario en 2-3 líneas. Si todo está en orden, no digas nada."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "fyso": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://app.fyso.dev/mcp"
+      ]
+    }
+  }
+}

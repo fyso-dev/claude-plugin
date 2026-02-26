@@ -1,0 +1,27 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "fyso-plugins",
+  "owner": {
+    "name": "Fyso",
+    "email": "hello@fyso.dev"
+  },
+  "metadata": {
+    "description": "Official Fyso plugins for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "fyso",
+      "source": "./",
+      "description": "Build complete business apps from conversation. 19 skills, 5 agents, and auto-synced reference docs for the Fyso platform.",
+      "version": "1.18.0",
+      "author": { "name": "Fyso" },
+      "homepage": "https://fyso.dev",
+      "repository": "https://github.com/fyso-dev/claude-plugin",
+      "license": "MIT",
+      "keywords": ["business-apps", "metadata", "no-code", "crud", "api", "mcp", "erp"],
+      "category": "development",
+      "tags": ["mcp", "business-apps", "no-code", "erp"]
+    }
+  ]
+}
