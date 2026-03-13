@@ -6,7 +6,7 @@ Build complete business apps from conversation. This plugin extends Claude Code 
 
 | Component | Count | Description |
 |-----------|-------|-------------|
-| **Skills** | 19 | Slash commands (`/fyso:plan`, `/fyso:build`, `/fyso:ui`, etc.) |
+| **Skills** | 21 | Slash commands (`/fyso:plan`, `/fyso:build`, `/fyso:ui`, etc.) |
 | **Agents** | 5 | Specialized AI agents (architect, designer, builder, verifier, ui-architect) |
 | **Reference** | 3-tier | Auto-synced docs: CLAUDE.md (always loaded) → FYSO-REFERENCE.md (1 read) → deep dives |
 | **MCP** | 1 | Fyso MCP server for metadata operations |
@@ -109,6 +109,7 @@ On first use, the MCP server will open an OAuth flow to connect your Fyso accoun
 | `/fyso:rules` | Create business rules |
 | `/fyso:api` | REST API docs and clients |
 | `/fyso:deploy` | Deploy to sites.fyso.dev |
+| `/fyso:welcome` | Guided onboarding — create your first app via conversation |
 
 ## Documentation Tiers
 
