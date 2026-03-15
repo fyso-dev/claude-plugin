@@ -3,18 +3,18 @@
  * sync-reference.ts — Regenerates FYSO-REFERENCE.md from individual reference files.
  *
  * Usage:
- *   bun scripts/sync-reference.ts           # Regenerate FYSO-REFERENCE.md
- *   bun scripts/sync-reference.ts --check   # Check if it's up to date (exit 1 if stale)
+ *   bun bin/sync-reference.ts           # Regenerate FYSO-REFERENCE.md
+ *   bun bin/sync-reference.ts --check   # Check if it's up to date (exit 1 if stale)
  *
  * Source files (Tier 3):
- *   skills/fyso-entity/reference/field-types.md
- *   skills/fyso-plan/reference/mcp-operations.md
- *   skills/fyso-plan/reference/limitations.md
- *   skills/fyso-plan/reference/domain-patterns.md
- *   skills/fyso-rules/reference/dsl-reference.md
- *   skills/fyso-ui/reference/auth-patterns.md
- *   skills/fyso-ui/reference/ui-patterns.md
- *   skills/fyso-ui/reference/fyso-ui-components.md
+ *   skills/entity/reference/field-types.md
+ *   skills/plan/reference/mcp-operations.md
+ *   skills/plan/reference/limitations.md
+ *   skills/plan/reference/domain-patterns.md
+ *   skills/rules/reference/dsl-reference.md
+ *   skills/ui/reference/auth-patterns.md
+ *   skills/ui/reference/ui-patterns.md
+ *   skills/ui/reference/fyso-ui-components.md
  *
  * Output (Tier 2):
  *   FYSO-REFERENCE.md
@@ -42,7 +42,7 @@ const SECTIONS = [
   {
     number: 3,
     title: "REST API Reference",
-    source: "skills/ui/reference/auth-patterns.md",
+    source: "skills/api/reference/rest-api.md",
     extract: extractRESTAPI,
   },
   {
@@ -371,7 +371,7 @@ function extractLimitations(content: string): string {
 | 12 | resolve_depth only on list endpoints | Low | Separate GET /records/:id call per related entity |
 | 13 | No aggregation queries (SUM, COUNT, AVG) | Medium | Fetch all records + compute client-side |
 
-**Things that work fine:** Multiple entity creation, rules after publish, relations, query_records, metadata import/export.`;
+**Things that work fine:** Multiple entity creation, rules after publish, relations, \`fyso_data({ action: "query" })\`, metadata import/export.`;
 }
 
 function extractDomainPatterns(content: string): string {
@@ -431,9 +431,9 @@ function extractAuth(content: string): string {
 
 ### Auth Endpoints
 \`\`\`
-POST /api/auth/tenant/login    → { token, user }
-POST /api/auth/tenant/register → { token, user }  (if self-reg)
-GET  /api/auth/tenant/me       → { user }
+POST /api/auth/tenant/login    → { success, data: { token, user } }
+POST /api/auth/tenant/register → { success, data: { token, user } }
+GET  /api/auth/tenant/me       → { success, data: { user } }
 POST /api/auth/tenant/logout
 \`\`\`
 

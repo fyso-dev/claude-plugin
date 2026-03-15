@@ -241,7 +241,7 @@ Per-entity toggle: `realtimeEnabled` in entity metadata.
 - Max depth: 2
 - Transforms relation fields from UUID strings to full objects
 
-Source: `skills/ui/reference/auth-patterns.md`
+Source: `skills/api/reference/rest-api.md`
 
 ---
 
@@ -309,7 +309,7 @@ Source: `skills/rules/reference/dsl-reference.md`
 | 12 | resolve_depth only on list endpoints | Low | Separate GET /records/:id call per related entity |
 | 13 | No aggregation queries (SUM, COUNT, AVG) | Medium | Fetch all records + compute client-side |
 
-**Things that work fine:** Multiple entity creation, rules after publish, relations, query_records, metadata import/export.
+**Things that work fine:** Multiple entity creation, rules after publish, relations, `fyso_data({ action: "query" })`, metadata import/export.
 
 Source: `skills/plan/reference/limitations.md`
 
@@ -371,9 +371,9 @@ Source: `skills/plan/reference/domain-patterns.md`
 
 ### Auth Endpoints
 ```
-POST /api/auth/tenant/login    → { token, user }
-POST /api/auth/tenant/register → { token, user }  (if self-reg)
-GET  /api/auth/tenant/me       → { user }
+POST /api/auth/tenant/login    → { success, data: { token, user } }
+POST /api/auth/tenant/register → { success, data: { token, user } }
+GET  /api/auth/tenant/me       → { success, data: { user } }
 POST /api/auth/tenant/logout
 ```
 
