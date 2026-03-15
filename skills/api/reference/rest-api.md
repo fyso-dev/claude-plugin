@@ -28,7 +28,7 @@ DELETE /api/entities/{entity}/records/:id      # Delete
 ?order=desc            # asc or desc
 ?filters=field = value              # single filter
 ?filters=field = value AND other = x  # compound (AND only, no OR)
-?resolve_depth=1       # inline related objects (max 2, list endpoints only)
+?resolve_depth=1       # inline related objects (max 2 on list, max 3 on single record)
 ```
 
 ## Filter Operators
@@ -82,6 +82,7 @@ ws://app.fyso.dev/ws?token={api_key}&tenantId={slug}
 Per-entity toggle: `realtimeEnabled` in entity metadata.
 
 ## resolve_depth behavior
-- Only works on list endpoints (GET /records), NOT on single record (GET /records/:id)
-- Max depth: 2
+- List endpoints (GET /records): max depth 2
+- Single record (GET /records/:id): max depth 3
+- MCP `fyso_data({ action: "query" })`: max depth 3
 - Transforms relation fields from UUID strings to full objects
