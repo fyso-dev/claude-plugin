@@ -162,6 +162,37 @@ The `.fyso-agent` file contains:
 }
 ```
 
+### Participant types
+
+Two types of agents share the same messaging namespace:
+
+1. **External agents** — Claude Code sessions (or other MCP clients) connected to the tenant. Auto-registered with name + UUID suffix (e.g. `auditor-a3f2c1`). Send and receive messages via MCP tools.
+2. **Fyso agents** — Agents defined inside the tenant with `fyso_agents(action: "create", ...)`. Have name, system prompt, and tools. When they receive a message with `auto_run: true`, Fyso executes them automatically with the message as context. They don't need to be "connected" — Fyso runs them on-demand.
+
+External and Fyso agents share the same `to_agent`/`from_agent` namespace. An external agent can message a Fyso agent by name (`triage`) and vice versa. Fyso agents don't have UUID suffixes — their name is unique within the tenant by definition.
+
+### Recipient resolution
+
+When sending a message, use the base name without UUID suffix. Fyso resolves:
+
+- Single match for "cero" → delivers to `cero-a3f2c1`
+- Fyso (internal) agent named "cero" exists → priority to internal
+- Multiple matches → Fyso responds with candidate list for the sender to choose
+- Full name with suffix (`cero-a3f2c1`) always works as exact match
+
+### SSE filtering by agent
+
+The SSE stream filters `message.received` events to deliver **only** messages where `to_agent` matches the connected `agent_id`. CRUD events (`record.created/updated/deleted`) still arrive unfiltered (or filtered by `?entities=`).
+
+### Access roles
+
+| Role | Can see | Can send as | SSE receives |
+|------|---------|-------------|-------------|
+| `owner` | All inboxes in the tenant | Any agent (explicit `from_agent`) | All `message.received` (no `to_agent` filter) |
+| `participant` | Own inbox only | Only as itself | Only its own `message.received` |
+
+Role is determined by the API key: platform keys (`fyso_pkey_*`) with `owner`/`admin` role → `owner`. Agent keys or limited-role keys → `participant`.
+
 ## Channel Event Format
 
 Once active, events arrive in the session as:
@@ -263,9 +294,64 @@ Messages from other agents arrive as `message.received` channel events:
 
 Messages are stored in the `_agent_messages` system entity. If the agent is offline when a message arrives, it waits in the inbox until the agent reconnects and reads it. No messages are lost due to disconnection.
 
+### `_agent_messages` schema
+
+Fyso auto-creates this system entity in each tenant. Not editable by the builder, not included in metadata export.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | PK |
+| `from_agent` | varchar | Sender agent identifier |
+| `to_agent` | varchar | Recipient agent identifier |
+| `agent_type` | enum | `fyso` (internal) or `external` (Claude Code, etc.) |
+| `subject` | varchar | Optional subject line |
+| `payload` | JSONB | Free-form content — the builder puts whatever they want |
+| `status` | enum | `pending`, `read`, `archived`, `processing` |
+| `priority` | enum | `normal`, `high`, `urgent` |
+| `auto_run` | boolean | If true and recipient is a Fyso agent, execute automatically |
+| `run_id` | UUID | Reference to the Fyso agent run if auto-executed (null for external) |
+| `in_reply_to` | UUID | Reference to original message (threading) |
+| `created_at` | timestamp | When sent |
+| `read_at` | timestamp | When read or processed (null if pending) |
+
 ### Anti-loop protection
 
-Maximum 5 auto-runs chained per original message. If exceeded, the message remains in `pending` status without auto-run and a `message.chain_limit` event is emitted.
+Maximum 5 auto-runs chained per original message (traced via `in_reply_to`). If exceeded, the message remains in `pending` status without auto-run and a `message.chain_limit` event is emitted.
+
+### Example flows
+
+**External → External (collaborative bug fix):**
+```
+~/agents/ticket/ (support) ←→ ~/agents/cero/ (developer)
+ticket reads email → sends bug to cero → cero investigates → asks ticket for info →
+ticket replies → cero fixes → sends resolution → ticket emails customer
+```
+
+**External → Fyso agent (auto-run):**
+```
+Claude Code agent → send_message(to: "analista", auto_run: true, payload: {...})
+→ Fyso detects "analista" is a Fyso agent → status: "processing"
+→ Fyso runs analista with payload as context → analista responds via send_message
+→ External agent receives result via SSE or reads from inbox
+```
+
+**Fyso agent chain (internal orchestration):**
+```
+Message arrives at "receptor" (auto_run: true) → Fyso executes →
+receptor processes → send_message(to: "especialista", auto_run: true) →
+Fyso executes "especialista" → responds to original sender
+Complete chain without external intervention.
+```
+
+### Limits
+
+| Limit | Value |
+|-------|-------|
+| Max pending messages per agent | 1000 |
+| Max chained auto-runs per message | 5 |
+| Max payload size | 64 KB |
+| Archived messages retention | 30 days |
+| Attachments | Not supported (JSONB only) |
 
 ## Error Handling
 
