@@ -55,7 +55,10 @@ Collect the following values. Use what's already available before asking the use
 | `FYSO_API_KEY` | env var `FYSO_API_KEY` → ask user |
 | `FYSO_API_URL` | env var `FYSO_API_URL` → default `https://app.fyso.dev` |
 | `FYSO_ENTITIES` | `--entities` arg → env var `FYSO_ENTITIES` → empty (all events) |
-| `FYSO_AGENT_NAME` | `--name` arg → `.fyso-agent` file → omit (anonymous connection) |
+| `FYSO_AGENT_NAME` | `--name` arg → `.fyso-agent` file → derive from directory name → ask user to confirm |
+
+**Agent name resolution when not provided:**
+If `--name` is not given and no `.fyso-agent` file exists, derive a suggested name from the current directory basename (e.g. `~/agents/cero/` → suggest `cero`, `~/work/fyso/coordinator` → suggest `coordinator`). Present the suggestion to the user and let them confirm or change it. Do NOT default to anonymous — always suggest a name so messaging works out of the box.
 
 ### Step 2: Validate
 
@@ -149,7 +152,7 @@ Each directory maps to one agent identity. The channel server supports agent reg
 
 - **Existing identity**: If `.fyso-agent` exists in the current directory, the agent reconnects with its saved identity automatically.
 - **New registration**: Pass `--name <agent_name>` on first connection. Fyso generates an `agent_id` like `cero-a3f2c1` and saves it to `.fyso-agent`.
-- **Anonymous**: If no name is provided and no `.fyso-agent` exists, the agent connects anonymously (CRUD events only, no messaging).
+- **Auto-suggest**: If no `--name` and no `.fyso-agent`, the skill suggests a name derived from the current directory basename and asks the user to confirm. This ensures messaging is always enabled.
 
 The `.fyso-agent` file contains:
 
