@@ -1,0 +1,9 @@
+{
+  "name": "@fyso/claude-plugin",
+  "version": "1.35.0",
+  "description": "Deprecated compatibility shim. Use @fyso/ai-plugin instead.",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "fyso-ai",
+  "version": "1.35.0",
+  "description": "Fyso AI Plugin for Claude. Shared Fyso skills, reference docs, MCP tooling, plus Claude runtime hooks and agents.",
+  "author": {
+    "name": "Fyso",
+    "email": "hello@fyso.dev"
+  },
+  "homepage": "https://fyso.dev",
+  "repository": "https://github.com/fyso-dev/fyso-ai-plugin",
+  "license": "MIT",
+  "keywords": ["business-apps", "metadata", "ai-plugin", "crud", "api", "mcp", "erp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

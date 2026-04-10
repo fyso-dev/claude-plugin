@@ -1,176 +1,56 @@
-# @fyso/claude-plugin
+# Fyso AI Plugin
 
-Build complete business apps from conversation. This plugin extends Claude Code with skills, agents, and reference docs for the Fyso platform.
+Fyso AI Plugin packages Fyso skills, reference docs, and MCP tooling for host agents. The repository is host-agnostic at its core and ships explicit adapters for Claude and Codex.
 
-## What You Get
+## Structure
 
-| Component | Count | Description |
-|-----------|-------|-------------|
-| **Skills** | 21 | Slash commands (`/fyso:plan`, `/fyso:build`, `/fyso:ui`, etc.) |
-| **Agents** | 5 | Specialized AI agents (architect, designer, builder, verifier, ui-architect) |
-| **Reference** | 3-tier | Auto-synced docs: CLAUDE.md (always loaded) → FYSO-REFERENCE.md (1 read) → deep dives |
-| **MCP** | 10 | Fyso MCP server: 10 grouped tools with 80+ actions |
-| **Hooks** | 1 | Auto-sync reference when docs change |
+| Path | Purpose |
+|------|---------|
+| `core/` | Neutral source of truth for skills, references, templates, and MCP config |
+| `adapters/claude/` | Claude-specific manifests, hooks, agents, and install docs |
+| `adapters/codex/` | Codex-specific manifests, marketplace metadata, and install docs |
+| `dist/` | Generated host artifacts |
 
-## Installation
+## Product Naming
 
-### From Marketplace (Recommended)
+- Product: `Fyso AI Plugin`
+- Canonical package: `@fyso/ai-plugin`
+- Canonical repo/docs naming: `fyso-ai-plugin`
+- Canonical Codex plugin id: `fyso-ai`
 
-```bash
-# 1. Add the Fyso marketplace
-/plugin marketplace add fyso-dev/claude-plugin
+Compatibility shim:
 
-# 2. Install the plugin
-/plugin install fyso@fyso-plugins
-```
+- `@fyso/claude-plugin` remains as a temporary shim in `packages/claude-plugin-shim/`
 
-### Team Auto-Install
+## Host Guides
 
-Add to your project's `.claude/settings.json`:
+- General architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Claude install: [docs/INSTALL-CLAUDE.md](docs/INSTALL-CLAUDE.md)
+- Codex install: [docs/INSTALL-CODEX.md](docs/INSTALL-CODEX.md)
 
-```json
-{
-  "extraKnownMarketplaces": {
-    "fyso-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "fyso-dev/claude-plugin"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "fyso@fyso-plugins": true
-  }
-}
-```
-
-Team members will be prompted to install automatically.
-
-### Manual Install (Legacy)
+## Build
 
 ```bash
-bunx @fyso/claude-plugin install
+bun run neutralize-core
+bun run validate:core
+bun run sync-reference
+bun run build
 ```
 
-## Setup
-
-### 1. Restart Claude Code
-
-After installing, restart Claude Code. Skills are available with `/fyso:` prefix.
-
-### 2. Connect your Fyso account
-
-On first use, the MCP server will open an OAuth flow to connect your Fyso account. No API key needed — authentication is handled automatically.
-
-## Available Skills
-
-### GSD Pipeline (Plan → Build → Verify)
-
-```
-/fyso:plan new "Sistema para consultorio dental"
-/fyso:plan phase 1
-/fyso:build phase 1
-/fyso:verify phase 1
-```
-
-### UI Generation Pipeline
-
-```
-# Option A: AI asks questions
-/fyso:ui all
-
-# Option B: AI infers everything
-/fyso:ui infer "Panel admin para mi negocio"
-
-# After generating
-/fyso:ui audit
-```
-
-### Full Skill List
-
-| Skill | Description |
-|-------|-------------|
-| `/fyso:fyso` | Main orchestrator — routes your request |
-| `/fyso:plan` | Design complete apps: requirements, roadmap, phases |
-| `/fyso:build` | Execute plans: create entities, rules, data via MCP |
-| `/fyso:verify` | Verify tenant matches plan requirements |
-| `/fyso:scan` | Scan tenant and generate status report |
-| `/fyso:expose` | Create channels and API tools |
-| `/fyso:status` | View project status |
-| `/fyso:ui plan` | Discovery: ask about objective, roles, style |
-| `/fyso:ui infer` | Fast-track: AI infers everything from description |
-| `/fyso:ui mockup` | Generate ASCII wireframes for validation |
-| `/fyso:ui contracts` | Document API contracts, roles, auth |
-| `/fyso:ui build` | Generate React + @fyso/ui code |
-| `/fyso:ui audit` | Audit security, domain, permissions, UX |
-| `/fyso:new-app` | Wizard for new apps with pre-built templates |
-| `/fyso:add-entity` | Create entities with guided prompts |
-| `/fyso:entity` | Advanced entity management |
-| `/fyso:rules` | Create business rules |
-| `/fyso:api` | REST API docs and clients |
-| `/fyso:deploy` | Deploy to sites.fyso.dev |
-| `/fyso:welcome` | Guided onboarding — create your first app via conversation |
-
-## Documentation Tiers
-
-The plugin uses a 3-tier documentation system for efficient AI context:
-
-| Tier | File | When Loaded | Content |
-|------|------|-------------|---------|
-| 1 | `CLAUDE.md` | Always (auto) | Fyso mental model in 20 lines |
-| 2 | `FYSO-REFERENCE.md` | 1 read per skill | Everything consolidated: types, MCP, DSL, patterns |
-| 3 | `skills/*/reference/*.md` | On-demand | Full docs with examples |
-
-Reference auto-syncs via a Claude Code hook when any Tier 3 file changes.
-
-## Development
-
-### Building for Distribution
-
-From the monorepo:
+Or build one host at a time:
 
 ```bash
-bun packages/claude-plugin/bin/build.ts
+bun run build:claude
+bun run build:codex
 ```
 
-This creates a self-contained `dist/` directory with:
-- Symlinks resolved to real files
-- Skills renamed (strips `fyso-` prefix for clean namespacing)
-- All manifests, hooks, and MCP config included
+## What Gets Generated
 
-### CLI Commands (Legacy)
+- `dist/claude/` includes the neutral Fyso core plus Claude manifests, hooks, and agent profiles.
+- `dist/codex/` includes the neutral Fyso core plus Codex plugin manifests and marketplace metadata.
 
-```bash
-fyso-plugin install       # Install skills, agents, hooks, reference
-fyso-plugin status        # Check what's installed
-fyso-plugin uninstall     # Remove everything
-fyso-plugin sync          # Regenerate FYSO-REFERENCE.md
-```
+## Development Notes
 
-## MCP Tools (v1.33)
-
-The plugin connects to Fyso's MCP server via OAuth. Ten grouped tools are exposed:
-
-| Tool | Actions | Purpose |
-|------|---------|---------|
-| `fyso_data` | 6 | Records CRUD, bookings, scheduling |
-| `fyso_schema` | 11 | Entities, fields, presets (new: `install_preset`, `list_presets`) |
-| `fyso_rules` | 7 | Business rules with DSL, testing, logs |
-| `fyso_auth` | 13 | Users, roles, tenants, invitations |
-| `fyso_views` | 4 | Filtered entity views |
-| `fyso_knowledge` | 3 | Knowledge base search, docs search |
-| `fyso_deploy` | 5 | Static sites, custom domains, CI/CD tokens |
-| `fyso_meta` | 8 | API docs, metadata, secrets, usage, feedback |
-| `fyso_agents` | 11 | AI agents: create, run, version, templates (NEW) |
-| `fyso_ai` | 10 | Multi-provider AI, prompt templates, call logs (NEW) |
-
-See `FYSO-REFERENCE.md` section 2 for complete parameter reference.
-
-## Requirements
-
-- [Claude Code](https://claude.ai/code) v1.0.33+
-- Fyso account at [fyso.dev](https://fyso.dev)
-
-## License
-
-MIT — Fyso Software
+- Keep `core/` free of host names, slash commands, and host runtime paths.
+- Put host runtime behavior in `adapters/<host>/`.
+- Regenerate `core/FYSO-REFERENCE.md` from `core/skills/*/reference/` only.

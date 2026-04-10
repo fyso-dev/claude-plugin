@@ -1,0 +1,20 @@
+{
+  "name": "fyso-ai",
+  "interface": {
+    "displayName": "Fyso AI Plugins"
+  },
+  "plugins": [
+    {
+      "name": "fyso-ai",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    }
+  ]
+}

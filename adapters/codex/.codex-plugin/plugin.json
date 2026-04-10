@@ -1,0 +1,43 @@
+{
+  "name": "fyso-ai",
+  "version": "1.35.0",
+  "description": "Fyso AI Plugin for Codex. Shared Fyso skills, reference docs, and MCP tooling.",
+  "author": {
+    "name": "Fyso",
+    "email": "hello@fyso.dev",
+    "url": "https://fyso.dev"
+  },
+  "homepage": "https://fyso.dev",
+  "repository": "https://github.com/fyso-dev/fyso-ai-plugin",
+  "license": "MIT",
+  "keywords": [
+    "business-apps",
+    "metadata",
+    "ai-plugin",
+    "crud",
+    "api",
+    "mcp",
+    "erp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Fyso AI Plugin",
+    "shortDescription": "Fyso skills and MCP tools for Codex.",
+    "longDescription": "Codex adapter for Fyso AI Plugin with shared Fyso skills, reference docs, and MCP server configuration.",
+    "developerName": "Fyso",
+    "category": "Development",
+    "capabilities": [
+      "Interactive",
+      "Write",
+      "MCP"
+    ],
+    "websiteURL": "https://fyso.dev",
+    "defaultPrompt": [
+      "Plan a new Fyso app for a dental clinic.",
+      "Design entities and rules for an inventory workflow.",
+      "Audit my Fyso tenant and propose the next phase."
+    ],
+    "brandColor": "#0F766E"
+  }
+}
