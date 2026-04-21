@@ -51,7 +51,7 @@ Add to `.claude/settings.json`:
 Run the setup command in your project directory:
 
 ```bash
-npx @fyso/opencode-plugin setup
+bash <(curl -fsSL https://raw.githubusercontent.com/fyso-dev/fyso-plugin/main/setup-opencode.sh)
 ```
 
 This automatically:
