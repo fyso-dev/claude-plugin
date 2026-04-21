@@ -50,8 +50,14 @@ Add to `.claude/settings.json`:
 
 Run the setup command in your project directory:
 
+**macOS / Linux:**
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/fyso-dev/fyso-plugin/main/setup-opencode.sh)
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/fyso-dev/fyso-plugin/main/setup-opencode.ps1 | iex
 ```
 
 This automatically:
