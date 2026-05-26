@@ -94,7 +94,7 @@ Siempre:
 3. Documenta - explica que se creo y por que
 4. Prueba - ejecuta tests despues de cada cambio
 
-## Comandos Disponibles (16 skills)
+## Comandos Disponibles (17 skills)
 
 ### Core Pipeline (GSD)
 - `/fyso:plan` - Planificar app nueva o siguiente fase
@@ -117,6 +117,8 @@ Siempre:
 ### Setup & Config
 - `/fyso:setup [init|mcp]` - Inicializar proyecto y configurar MCP
 - `/fyso:new-app` - Crear app desde template prebuild
+- `/fyso:sync-team` - Sincronizar equipos de agentes Fyso al proyecto local
+- `/fyso:create-team` - Crear un equipo de agentes Fyso desde el plugin
 
 ### Release
 - `/fyso:release [deploy|publish]` - Desplegar frontend o publicar al catalogo

@@ -62,7 +62,7 @@ irm https://raw.githubusercontent.com/fyso-dev/fyso-plugin/main/setup-opencode.p
 
 This automatically:
 - Copies agents to `.opencode/agents/` (5 subagents)
-- Copies skills to `.opencode/skills/` (16 skills)
+- Copies skills to `.opencode/skills/` (17 skills)
 - Copies `FYSO-REFERENCE.md` to your project
 - Updates `opencode.json` with the plugin and Fyso MCP server
 
