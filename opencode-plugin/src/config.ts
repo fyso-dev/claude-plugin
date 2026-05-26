@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "fs/promises"
+import { readFile, mkdir } from "fs/promises"
 import { existsSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
@@ -51,9 +51,9 @@ export async function debugLog(message: string): Promise<void> {
   try {
     const timestamp = new Date().toISOString()
     const line = `=== ${timestamp} === ${message}\n`
-    await mkdir(FYSO_DIR, { recursive: true })
+    await mkdir(FYSO_DIR, { recursive: true, mode: 0o700 })
     const { appendFile } = await import("fs/promises")
-    await appendFile(DEBUG_LOG, line)
+    await appendFile(DEBUG_LOG, line, { mode: 0o600 })
   } catch {
     // Silent fail
   }

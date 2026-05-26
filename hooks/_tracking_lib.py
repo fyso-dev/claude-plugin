@@ -374,7 +374,9 @@ def debug_log(message):
     if not is_debug():
         return
     try:
-        with open(_DEBUG_LOG_PATH, "a") as dl:
+        os.makedirs(os.path.dirname(_DEBUG_LOG_PATH), mode=0o700, exist_ok=True)
+        fd = os.open(_DEBUG_LOG_PATH, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a") as dl:
             dl.write(message)
     except Exception:
         pass

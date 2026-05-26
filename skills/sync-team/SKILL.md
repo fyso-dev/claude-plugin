@@ -50,10 +50,11 @@ If no saved config exists, use tenant ID `fyso-world-fcecd` and API URL `https:/
 Save to `~/.fyso/config.json` only when no saved config exists or the user explicitly provides replacement credentials. When a saved config is reused, skip this step.
 
 ```bash
-mkdir -p ~/.fyso
+install -d -m 700 ~/.fyso
+umask 077
 ```
 
-Write the file with the Write tool:
+Write the file with the Write tool so `~/.fyso/config.json` is created with user-only permissions:
 
 ```json
 {

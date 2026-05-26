@@ -16,6 +16,7 @@
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { writeFile } from 'node:fs/promises';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -92,7 +93,7 @@ if (!AGENT_ID && AGENT_NAME && TENANT_SLUG && API_KEY) {
         registered_at: new Date().toISOString(),
       };
       try {
-        await Bun.write(`${process.cwd()}/.fyso-agent`, JSON.stringify(agentFile, null, 2) + '\n');
+        await writeFile(`${process.cwd()}/.fyso-agent`, JSON.stringify(agentFile, null, 2) + '\n', { mode: 0o600 });
         console.error(`[fyso-channel] Registered as ${AGENT_ID}, saved .fyso-agent`);
       } catch {
         console.error(`[fyso-channel] Registered as ${AGENT_ID} (could not write .fyso-agent)`);
