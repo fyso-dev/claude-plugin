@@ -15,9 +15,16 @@ This skill outputs files for **both** supported platforms:
 | Platform | Agent files | Team prompt | Instructions |
 |----------|------------|-------------|--------------|
 | **Claude Code** | `.claude/agents/{name}.md` | `.claude/CLAUDE.md` | Frontmatter-based agents |
-| **OpenCode** | `.opencode/commands/agents/{name}.md` | `opencode.md` | Markdown command files |
+| **OpenCode** | `.opencode/agents/{name}.md` | `opencode.md` | Markdown subagents |
 
 Always generate output for **both** platforms so the project works regardless of which coding agent the user runs.
+
+Team skills are also synced for both platforms:
+
+| Platform | Skill files |
+|----------|-------------|
+| **Claude Code** | `.claude/skills/{name}.md` |
+| **OpenCode** | `.opencode/skills/{name}.md` |
 
 ## Config structure
 
@@ -28,7 +35,7 @@ This plugin uses two config files:
 
 ## Step 1 — Get the API key
 
-First, check if a saved key exists at `~/.fyso/config.json`. If it does, read it and use the stored `token` and `tenant_id` values. Tell the user you found saved credentials and ask if they want to use them or enter new ones.
+First, check if a saved key exists at `~/.fyso/config.json`. If it does, read it and use the stored `token`, `tenant_id`, and `api_url` values. Do not rewrite this file when saved credentials are reused.
 
 If no saved config exists, ask the user for their **Token** (Bearer token for API access).
 
@@ -36,13 +43,11 @@ Tell the user:
 
 > Para obtener tu token, anda a https://agent-ui-sites.fyso.dev/ , ingresa con tu email y contrasena, y copia el token que aparece en pantalla.
 
-The tenant ID is always `fyso-world-fcecd`. Do NOT ask the user for it.
-
-The API URL is always `https://api.fyso.dev`. Do NOT ask the user for it.
+If no saved config exists, use tenant ID `fyso-world-fcecd` and API URL `https://api.fyso.dev`. Do NOT ask the user for them.
 
 ## Step 2 — Save global credentials
 
-Save to `~/.fyso/config.json` (global, user-level):
+Save to `~/.fyso/config.json` only when no saved config exists or the user explicitly provides replacement credentials. When a saved config is reused, skip this step.
 
 ```bash
 mkdir -p ~/.fyso
@@ -67,12 +72,14 @@ If you can validate the token by calling `GET /api/auth/me`, do it and save the 
 Fetch all teams:
 
 ```
-curl -s "https://api.fyso.dev/api/entities/teams/records" \
+curl -s "{API_URL}/api/entities/teams/records" \
   -H "Authorization: Bearer {TOKEN}" \
-  -H "X-Tenant-ID: fyso-world-fcecd"
+  -H "X-Tenant-ID: {TENANT_ID}"
 ```
 
-Parse the JSON response. The records are in `data.items`. Each team has at least `id`, `name`, and optionally `prompt`.
+Parse the JSON response. The records are in `data.items`. Each team has at least `id`, `name`, and optionally `prompt` and `version`.
+
+Important: the API response may include an internal `_record_version`. Do not use it for team sync. The team's sync/changelog version is the `version` field.
 
 ## Step 4 — Let the user pick a team
 
@@ -88,9 +95,12 @@ mkdir -p .fyso
 {
   "team_id": "{TEAM_ID}",
   "team_name": "{TEAM_NAME}",
+  "version": {TEAM_VERSION_OR_0},
   "synced_at": "{ISO_TIMESTAMP}"
 }
 ```
+
+`version` must be written as a numeric JSON value, not as a string.
 
 ## Step 5 — Write team prompt
 
@@ -123,9 +133,9 @@ If the team has no prompt, skip this step and inform the user.
 Using the selected team's `id`, fetch the agents assigned to that team:
 
 ```
-curl -s "https://api.fyso.dev/api/entities/team_agents/records?resolve=true&filter.team={TEAM_ID}" \
+curl -s "{API_URL}/api/entities/team_agents/records?resolve=true&filter.team={TEAM_ID}" \
   -H "Authorization: Bearer {TOKEN}" \
-  -H "X-Tenant-ID: fyso-world-fcecd"
+  -H "X-Tenant-ID: {TENANT_ID}"
 ```
 
 The response contains records where each entry has an `_agent` field (resolved to a full agent object because of `resolve=true`). Extract the agent details from each record. Key fields on each agent:
@@ -182,15 +192,21 @@ color: {color}
 {system_prompt}
 ```
 
-### 8b — OpenCode commands
+### 8b — OpenCode agents
 
 ```bash
-mkdir -p .opencode/commands/agents
+mkdir -p .opencode/agents
 ```
 
-For each agent, create `.opencode/commands/agents/{name}.md`. OpenCode commands are plain markdown (no frontmatter) that get sent as a prompt when invoked via `Ctrl+K`:
+For each agent, create `.opencode/agents/{name}.md`:
 
 ```markdown
+---
+description: "{role} -- {display_name}"
+mode: subagent
+color: "{color}"
+---
+
 # {display_name}
 
 You are **{display_name}**, a specialized agent with the role of **{role}**.
@@ -223,17 +239,68 @@ The match should be case-insensitive and partial (e.g. "Senior Developer" matche
 
 For `first_line_of_soul`: take the first non-empty line of the `soul` field, trimmed. If soul is empty, use the display_name instead.
 
-## Step 9 — Report results
+## Step 9 — Fetch team skills
+
+Using the selected team's `id`, fetch the skills assigned to that team:
+
+```
+curl -s "{API_URL}/api/entities/team_skills/records?resolve=true&filter.team={TEAM_ID}" \
+  -H "Authorization: Bearer {TOKEN}" \
+  -H "X-Tenant-ID: {TENANT_ID}"
+```
+
+The response contains records in `data.items`. Each skill may be present directly on the record or as a resolved `_skill`/`skill` object. Each skill has:
+
+- `name` — slug/identifier
+- `description` — one-line summary, optional
+- `content` — full Markdown content
+
+If the response returns zero items, skip Step 10 and note that no team skills were found.
+
+## Step 10 — Create skill files
+
+Create skill files for both platforms.
+
+### 10a — Claude Code skills
+
+```bash
+mkdir -p .claude/skills
+```
+
+For each skill, create `.claude/skills/{name}.md`:
+
+```markdown
+---
+name: {name}
+description: {description}
+---
+
+{content}
+```
+
+### 10b — OpenCode skills
+
+```bash
+mkdir -p .opencode/skills
+```
+
+For each skill, create `.opencode/skills/{name}.md` with the full `content`.
+
+IMPORTANT: Include the FULL `content` field exactly as received from the API. Do NOT truncate, summarize, or modify it.
+
+## Step 11 — Report results
 
 After creating all files, print a summary:
 
 - Whether the team prompt was written to `.claude/CLAUDE.md` and `opencode.md`
 - How many agent files were created (for each platform)
+- How many skill files were created (for each platform), or "no team skills found"
 - The full path of each file created
-- That global credentials were saved to `~/.fyso/config.json`
-- That team info was saved to `.fyso/team.json`
+- Whether global credentials were reused from or saved to `~/.fyso/config.json`
+- That team info was saved to `.fyso/team.json`, including the current team version
 - A reminder that the user can now use these agents:
   - **Claude Code**: as subagents via the Agent tool or by referencing them
-  - **OpenCode**: via `Ctrl+K` → `project:agents:{name}`
+  - **OpenCode**: as project subagents
+- A note that future Claude Code sessions check the saved team version and notify the user when a newer version is available
 
 If no agents were found for the selected team, inform the user and suggest they check the team configuration in the Fyso dashboard at https://agent-ui-sites.fyso.dev.

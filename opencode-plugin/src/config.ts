@@ -14,6 +14,7 @@ export interface FysoConfig {
 export interface TeamConfig {
   team_id: string
   team_name: string
+  version?: number
   synced_at?: string
 }
 

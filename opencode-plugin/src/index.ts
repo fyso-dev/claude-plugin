@@ -2,7 +2,13 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { createTracker } from "./tracking"
 import { readConfig, readTeamConfig } from "./config"
-import { listTeams, fetchTeamAgents, syncAgentsToDirectory } from "./tools/sync-team"
+import {
+  listTeams,
+  fetchTeamAgents,
+  fetchTeamSkills,
+  syncAgentsToDirectory,
+  syncSkillsToDirectory,
+} from "./tools/sync-team"
 import { listAgents, createTeam, assignAgents } from "./tools/create-team"
 import { writeFile, mkdir } from "fs/promises"
 import { join } from "path"
@@ -14,8 +20,170 @@ export const FysoPlugin: Plugin = async (ctx) => {
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
   let currentSessionID: string | undefined
   let recentTools: string[] = []
+  const modelBySession = new Map<string, string>()
+  const usageSeenBySession = new Map<string, string>()
+
+  function modelName(model?: { providerID?: string; modelID?: string; id?: string }) {
+    if (!model) return undefined
+    const id = model.modelID || model.id
+    if (!id) return undefined
+    if (/^(msg|prt|call)_/i.test(id)) return undefined
+    return model.providerID ? `${model.providerID}/${id}` : id
+  }
+
+  function tokenValue(value: unknown): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0
+  }
+
+  async function trackStepTokens(event: unknown) {
+    const typed = event as {
+      type?: string
+      properties?: {
+        sessionID?: string
+        part?: {
+          type?: string
+          id?: string
+          tokens?: {
+            input?: number
+            output?: number
+            reasoning?: number
+            cache?: { read?: number; write?: number }
+          }
+        }
+        tokens?: {
+          input?: number
+          output?: number
+          reasoning?: number
+          cache?: { read?: number; write?: number }
+        }
+      }
+    }
+    const sessionID = typed.properties?.sessionID
+    const part = typed.properties?.part
+    const tokens = part?.tokens || typed.properties?.tokens
+    if (!sessionID || !tokens) return
+    if (part && part.type && part.type !== "step-finish") return
+
+    const input = tokenValue(tokens.input)
+    const output = tokenValue(tokens.output) + tokenValue(tokens.reasoning)
+    const cacheRead = tokenValue(tokens.cache?.read)
+    const cacheWrite = tokenValue(tokens.cache?.write)
+    const total = input + output + cacheRead + cacheWrite
+    if (total <= 0) return
+
+    const dedupeKey = `${input}:${output}:${cacheWrite}:${cacheRead}`
+    if (usageSeenBySession.get(sessionID) === dedupeKey) return
+    usageSeenBySession.set(sessionID, dedupeKey)
+
+    await tracker.sessionUsage({
+      sessionID,
+      directory: ctx.directory,
+      detail: "session usage",
+      model: modelBySession.get(sessionID),
+      input_tokens: input,
+      output_tokens: output,
+      cache_creation_tokens: cacheWrite,
+      cache_read_tokens: cacheRead,
+    })
+  }
+
+  async function startTrackingSession(sessionID?: string) {
+    currentSessionID = sessionID
+    recentTools = []
+
+    await tracker.sessionStart({
+      sessionID: currentSessionID,
+      directory: ctx.directory,
+    })
+
+    if (heartbeatTimer) clearInterval(heartbeatTimer)
+    heartbeatTimer = setInterval(async () => {
+      const detail =
+        recentTools.length > 0
+          ? `Tools: ${recentTools.slice(-5).join(", ")}`
+          : "idle"
+      await tracker.heartbeat({
+        sessionID: currentSessionID,
+        directory: ctx.directory,
+        detail,
+      })
+    }, HEARTBEAT_INTERVAL)
+  }
+
+  async function endTrackingSession() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = null
+    }
+    await tracker.sessionEnd({
+      sessionID: currentSessionID,
+      directory: ctx.directory,
+    })
+  }
 
   return {
+    event: async ({ event }) => {
+      const typed = event as {
+        type?: string
+        properties?: {
+          sessionID?: string
+          session?: { id?: string }
+          info?: {
+            sessionID?: string
+            role?: string
+            modelID?: string
+            providerID?: string
+            tokens?: {
+              input?: number
+              output?: number
+              reasoning?: number
+              cache?: { read?: number; write?: number }
+            }
+          }
+        }
+      }
+      if (typed.type === "session.created") {
+        await startTrackingSession(typed.properties?.sessionID || typed.properties?.session?.id)
+      }
+      if (typed.type === "session.deleted") {
+        await endTrackingSession()
+      }
+      if (typed.type === "message.updated") {
+        const info = typed.properties?.info
+        const sessionID = info?.sessionID
+        const model = modelName(info)
+        if (sessionID && model) modelBySession.set(sessionID, model)
+        if (info?.role === "assistant" && sessionID && info.tokens) {
+          await trackStepTokens({
+            type: typed.type,
+            properties: { sessionID, tokens: info.tokens },
+          })
+        }
+      }
+      if (typed.type === "message.part.updated") {
+        await trackStepTokens(event)
+      }
+      if (typed.type === "session.next.model.switched") {
+        const next = event as {
+          properties?: {
+            sessionID?: string
+            model?: { providerID?: string; modelID?: string; id?: string }
+          }
+        }
+        const sessionID = next.properties?.sessionID
+        const model = modelName(next.properties?.model)
+        if (sessionID && model) modelBySession.set(sessionID, model)
+      }
+      if (typed.type === "session.next.step.ended") {
+        await trackStepTokens(event)
+      }
+    },
+
+    "chat.message": async (input) => {
+      const model = modelName(input.model)
+      if (model) modelBySession.set(input.sessionID, model)
+    },
+
     tool: {
       "fyso-sync-team": tool({
         description:
@@ -56,6 +224,7 @@ export const FysoPlugin: Plugin = async (ctx) => {
           const teams = await listTeams(config)
           const team = teams.find((t) => t.id === args.team_id)
           const teamPrompt = team?.prompt || undefined
+          const skills = await fetchTeamSkills(config, args.team_id)
 
           // Save team config locally
           await mkdir(join(cwd, ".fyso"), { recursive: true })
@@ -65,6 +234,7 @@ export const FysoPlugin: Plugin = async (ctx) => {
               {
                 team_id: args.team_id,
                 team_name: team?.name || args.team_id,
+                version: team?.version || 0,
                 synced_at: new Date().toISOString(),
               },
               null,
@@ -73,7 +243,9 @@ export const FysoPlugin: Plugin = async (ctx) => {
           )
 
           // Sync agents
-          const created = await syncAgentsToDirectory(agents, cwd, teamPrompt)
+          const createdAgents = await syncAgentsToDirectory(agents, cwd, teamPrompt)
+          const createdSkills = await syncSkillsToDirectory(skills, cwd)
+          const created = [...createdAgents, ...createdSkills]
 
           const summary = [
             `Synced **${agents.length}** agents for team "${team?.name || args.team_id}":`,
@@ -82,6 +254,10 @@ export const FysoPlugin: Plugin = async (ctx) => {
             "",
             `Files created (${created.length}):`,
             ...created.map((f) => `- ${f}`),
+            "",
+            skills.length
+              ? `Synced **${skills.length}** team skills.`
+              : "No team skills configured.",
             "",
             teamPrompt
               ? "Team prompt written to `.claude/CLAUDE.md` and `opencode.md`."
@@ -168,55 +344,26 @@ export const FysoPlugin: Plugin = async (ctx) => {
       }),
     },
 
-    "session.created": async (event) => {
-      currentSessionID = (event as { properties?: { sessionID?: string } })?.properties?.sessionID
-      recentTools = []
-
-      await tracker.sessionStart({
-        sessionID: currentSessionID,
-        directory: ctx.directory,
-      })
-
-      // Start heartbeat
-      heartbeatTimer = setInterval(async () => {
-        const detail =
-          recentTools.length > 0
-            ? `Tools: ${recentTools.slice(-5).join(", ")}`
-            : "idle"
-        await tracker.heartbeat({
-          sessionID: currentSessionID,
-          directory: ctx.directory,
-          detail,
-        })
-      }, HEARTBEAT_INTERVAL)
-    },
-
-    "tool.execute.after": async (event) => {
-      const props = (event as { properties?: Record<string, unknown> })?.properties || {}
-      const toolName = (props.tool as string) || ""
+    "tool.execute.after": async (input, output) => {
+      const toolName = input.tool || ""
       if (toolName) recentTools.push(toolName)
+      if (input.sessionID && input.sessionID !== currentSessionID) {
+        await startTrackingSession(input.sessionID)
+      }
+
+      const metadata = (output.metadata || {}) as Record<string, unknown>
+      const args = (input.args || {}) as Record<string, unknown>
 
       await tracker.toolExecuted({
-        sessionID: currentSessionID,
+        sessionID: input.sessionID || currentSessionID,
         directory: ctx.directory,
         tool: toolName,
-        agent: (props.agent as string) || undefined,
-        model: (props.model as string) || undefined,
-        input_tokens: (props.input_tokens as number) || undefined,
-        output_tokens: (props.output_tokens as number) || undefined,
-        cache_creation_tokens: (props.cache_creation_tokens as number) || undefined,
-        cache_read_tokens: (props.cache_read_tokens as number) || undefined,
-      })
-    },
-
-    "session.deleted": async () => {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer)
-        heartbeatTimer = null
-      }
-      await tracker.sessionEnd({
-        sessionID: currentSessionID,
-        directory: ctx.directory,
+        agent: (args.agent as string) || (metadata.agent as string) || undefined,
+        model: (metadata.model as string) || (args.model as string) || undefined,
+        input_tokens: (metadata.input_tokens as number) || undefined,
+        output_tokens: (metadata.output_tokens as number) || undefined,
+        cache_creation_tokens: (metadata.cache_creation_tokens as number) || undefined,
+        cache_read_tokens: (metadata.cache_read_tokens as number) || undefined,
       })
     },
   }

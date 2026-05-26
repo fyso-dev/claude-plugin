@@ -11,6 +11,29 @@ interface Agent {
   system_prompt: string
 }
 
+export interface Team {
+  id: string
+  name: string
+  prompt?: string
+  version?: number
+}
+
+interface TeamSkill {
+  name: string
+  description?: string
+  content: string
+}
+
+interface AgentRelation {
+  _agent?: Agent
+  agent?: Agent | string
+}
+
+interface SkillRelation extends TeamSkill {
+  _skill?: TeamSkill
+  skill?: TeamSkill | string
+}
+
 const ROLE_COLORS: Record<string, string> = {
   developer: "green",
   qa: "yellow",
@@ -20,6 +43,17 @@ const ROLE_COLORS: Record<string, string> = {
   writer: "cyan",
   security: "red",
   triage: "orange",
+}
+
+const OPENCODE_ROLE_COLORS: Record<string, string> = {
+  developer: "success",
+  qa: "warning",
+  tester: "warning",
+  reviewer: "accent",
+  coordinator: "info",
+  writer: "info",
+  security: "error",
+  triage: "warning",
 }
 
 const SAFE_AGENT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/
@@ -39,6 +73,10 @@ export function resolveAgentFilePath(dir: string, name: string): string | null {
   const fileResolved = resolve(filePath)
   if (!fileResolved.startsWith(dirResolved)) return null
   return filePath
+}
+
+export function resolveSkillFilePath(dir: string, name: string): string | null {
+  return resolveAgentFilePath(dir, name)
 }
 
 // YAML double-quoted scalar with escaping. Safe against newline / quote / colon
@@ -65,6 +103,14 @@ function getColor(role: string): string {
     if (lower.includes(key)) return color
   }
   return "gray"
+}
+
+function getOpencodeColor(role: string): string {
+  const lower = role.toLowerCase()
+  for (const [key, color] of Object.entries(OPENCODE_ROLE_COLORS)) {
+    if (lower.includes(key)) return color
+  }
+  return "secondary"
 }
 
 function firstLineOf(text: string, fallback: string): string {
@@ -97,7 +143,7 @@ async function writeMarkerSection(filePath: string, content: string): Promise<vo
 
 export async function listTeams(config: NonNullable<Awaited<ReturnType<typeof readConfig>>>) {
   const resp = (await apiRequest(config, "GET", "/api/entities/teams/records")) as {
-    data?: { items?: Array<{ id: string; name: string; prompt?: string }> }
+    data?: { items?: Team[] }
   }
   return resp?.data?.items || []
 }
@@ -111,18 +157,80 @@ export async function fetchTeamAgents(
     "GET",
     `/api/entities/team_agents/records?resolve=true&filter.team=${teamId}`,
   )) as {
-    data?: { items?: Array<{ _agent?: Agent }> }
+    data?: { items?: AgentRelation[] }
   }
   const items = resp?.data?.items || []
-  return items
-    .map((item) => item._agent)
+  const resolved = items
+    .map((item) => item._agent || (typeof item.agent === "object" ? item.agent : undefined))
     .filter((a): a is Agent => !!a)
-    .map((a) => ({
-      name: a.name || "unnamed",
-      display_name: a.display_name || a.name || "Unnamed Agent",
-      role: a.role || "assistant",
-      soul: a.soul || "",
-      system_prompt: a.system_prompt || "",
+  const missingIds = items
+    .map((item) => (typeof item.agent === "string" ? item.agent : undefined))
+    .filter((id): id is string => !!id)
+
+  if (missingIds.length) {
+    const agentsResp = (await apiRequest(config, "GET", "/api/entities/agents/records")) as {
+      data?: { items?: Array<Agent & { id?: string }> }
+    }
+    const agentsById = new Map((agentsResp?.data?.items || []).map((agent) => [agent.id, agent]))
+    for (const id of missingIds) {
+      const agent = agentsById.get(id)
+      if (agent) resolved.push(agent)
+    }
+  }
+
+  return resolved.map((a) => ({
+    name: a.name || "unnamed",
+    display_name: a.display_name || a.name || "Unnamed Agent",
+    role: a.role || "assistant",
+    soul: a.soul || "",
+    system_prompt: a.system_prompt || "",
+  }))
+}
+
+export async function fetchTeamSkills(
+  config: NonNullable<Awaited<ReturnType<typeof readConfig>>>,
+  teamId: string,
+) {
+  let resp: {
+    data?: { items?: SkillRelation[] }
+  }
+  try {
+    resp = (await apiRequest(
+      config,
+      "GET",
+      `/api/entities/team_skills/records?resolve=true&filter.team=${teamId}`,
+    )) as typeof resp
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (message.includes("Entity 'team_skills' not found")) {
+      return []
+    }
+    throw err
+  }
+  const items = resp?.data?.items || []
+  const resolved = items
+    .map((item) => item._skill || (typeof item.skill === "object" ? item.skill : undefined) || item)
+    .filter((skill): skill is TeamSkill => !!skill && !!skill.name)
+
+  const missingIds = items
+    .map((item) => (typeof item.skill === "string" ? item.skill : undefined))
+    .filter((id): id is string => !!id)
+  if (missingIds.length) {
+    const skillsResp = (await apiRequest(config, "GET", "/api/entities/skills/records")) as {
+      data?: { items?: Array<TeamSkill & { id?: string }> }
+    }
+    const skillsById = new Map((skillsResp?.data?.items || []).map((skill) => [skill.id, skill]))
+    for (const id of missingIds) {
+      const skill = skillsById.get(id)
+      if (skill) resolved.push(skill)
+    }
+  }
+
+  return resolved
+    .map((skill) => ({
+      name: skill.name,
+      description: skill.description || "",
+      content: skill.content || "",
     }))
 }
 
@@ -173,7 +281,7 @@ function renderOpencodeAgent(agent: Agent, safe: SafeAgentFields): string {
   return `---
 description: ${yamlString(description)}
 mode: subagent
-color: ${yamlString(safe.color)}
+color: ${yamlString(getOpencodeColor(agent.role))}
 ---
 
 # ${safe.display}
@@ -207,6 +315,39 @@ async function writeAgentsTo(
   }
 }
 
+function renderClaudeSkill(skill: TeamSkill): string {
+  return `---
+name: ${yamlString(skill.name)}
+description: ${yamlString(skill.description || "")}
+---
+
+${sanitizeMarkdownBody(skill.content || "")}
+`
+}
+
+function renderOpencodeSkill(skill: TeamSkill): string {
+  return sanitizeMarkdownBody(skill.content || "") + "\n"
+}
+
+async function writeSkillsTo(
+  skills: TeamSkill[],
+  dir: string,
+  render: (skill: TeamSkill) => string,
+  created: string[],
+): Promise<void> {
+  await mkdir(dir, { recursive: true })
+  for (const skill of skills) {
+    const filePath = resolveSkillFilePath(dir, skill.name)
+    if (!filePath) {
+      console.warn(`[fyso] skipping skill with unsafe name: ${JSON.stringify(skill.name)}`)
+      continue
+    }
+    if (existsSync(filePath)) await rm(filePath)
+    await writeFile(filePath, render(skill))
+    created.push(filePath)
+  }
+}
+
 export async function syncAgentsToDirectory(
   agents: Agent[],
   cwd: string,
@@ -228,5 +369,12 @@ export async function syncAgentsToDirectory(
     created.push(opencodeMd)
   }
 
+  return created
+}
+
+export async function syncSkillsToDirectory(skills: TeamSkill[], cwd: string): Promise<string[]> {
+  const created: string[] = []
+  await writeSkillsTo(skills, join(cwd, ".claude", "skills"), renderClaudeSkill, created)
+  await writeSkillsTo(skills, join(cwd, ".opencode", "skills"), renderOpencodeSkill, created)
   return created
 }

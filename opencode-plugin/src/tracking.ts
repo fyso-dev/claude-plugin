@@ -13,7 +13,6 @@ const pricingData = JSON.parse(
 }
 
 const DEFAULT_FAMILY = pricingData.default_family
-const DEFAULT_MODEL = "claude-opus-4-6"
 
 interface TrackingEvent {
   event: string
@@ -22,6 +21,7 @@ interface TrackingEvent {
   detail?: string
   team_name?: string
   user?: string
+  source?: string
   session_id?: string
   model?: string
   model_family?: string
@@ -37,6 +37,7 @@ interface TrackingEvent {
   session_cache_creation_tokens?: number
   session_cache_read_tokens?: number
   cost_usd?: number
+  session_cost_usd?: number
   cwd?: string
   timestamp: string
 }
@@ -49,6 +50,7 @@ export function inferModelFamily(model: string): string {
 }
 
 export const PRICING = pricingData.pricing
+const KNOWN_FAMILIES = new Set(Object.keys(PRICING))
 
 export interface SessionTokens {
   input: number
@@ -76,6 +78,28 @@ export function calculateCost(
     (cacheWrite / 1e6) * p.cache_write +
     (cacheRead / 1e6) * p.cache_read
   )
+}
+
+function roundCost(value: number): number {
+  return Math.round(value * 1e6) / 1e6
+}
+
+function knownModelFamily(model: string): string | undefined {
+  const normalized = model.toLowerCase()
+  if (/opus|sonnet|haiku/i.test(model)) {
+    const family = inferModelFamily(model)
+    return KNOWN_FAMILIES.has(family) ? family : undefined
+  }
+
+  const openaiFamily = [
+    "gpt-5.5",
+    "gpt-5.4-mini",
+    "gpt-5.4",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5",
+  ].find((family) => normalized.includes(family))
+  return openaiFamily && KNOWN_FAMILIES.has(openaiFamily) ? openaiFamily : undefined
 }
 
 export function createTracker() {
@@ -108,19 +132,23 @@ export function createTracker() {
     }
   }
 
-  async function resolveContext(directory: string | undefined, modelOverride?: string) {
+  async function resolveContext(
+    directory: string | undefined,
+    modelOverride?: string,
+    fallbackModel?: string,
+  ) {
     const config = await readConfig()
     if (!config) return null
     const team = await readTeamConfig(directory || process.cwd())
-    const model = modelOverride || lastModel || DEFAULT_MODEL
-    const family = inferModelFamily(model)
+    const model = modelOverride || lastModel || fallbackModel || ""
+    const family = model ? knownModelFamily(model) : undefined
     const user = config.user_email || userInfo().username
     return { config, team, user, model, family }
   }
 
   return {
     async sessionStart(ctx: { sessionID?: string; directory?: string }) {
-      const resolved = await resolveContext(ctx.directory, DEFAULT_MODEL)
+      const resolved = await resolveContext(ctx.directory)
       if (!resolved) return
       const { config, team, user, model, family } = resolved
       const sessionId =
@@ -135,8 +163,9 @@ export function createTracker() {
         detail: "session start",
         team_name: team?.team_name,
         user,
+        source: "opencode",
         session_id: sessionId,
-        model,
+        model: model || undefined,
         model_family: family,
         cwd: ctx.directory,
       })
@@ -175,19 +204,26 @@ export function createTracker() {
         agent: ctx.agent,
         team_name: team?.team_name,
         user,
+        source: "opencode",
         session_id: ctx.sessionID,
-        model,
+        model: model || undefined,
         model_family: family,
-        tokens,
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        cache_creation_tokens: cacheCreation,
-        cache_read_tokens: cacheRead,
-        session_tokens: totalSessionTokens(sessionTokens),
+        tokens: tokens > 0 ? tokens : undefined,
+        input_tokens: inputTokens > 0 ? inputTokens : undefined,
+        output_tokens: outputTokens > 0 ? outputTokens : undefined,
+        cache_creation_tokens: cacheCreation > 0 ? cacheCreation : undefined,
+        cache_read_tokens: cacheRead > 0 ? cacheRead : undefined,
+        session_tokens: totalSessionTokens(sessionTokens) > 0 ? totalSessionTokens(sessionTokens) : undefined,
         session_input_tokens: sessionTokens.input,
         session_output_tokens: sessionTokens.output,
         session_cache_creation_tokens: sessionTokens.cache_creation,
         session_cache_read_tokens: sessionTokens.cache_read,
+        cost_usd:
+          family && tokens > 0
+            ? Math.round(
+                calculateCost(family, inputTokens, outputTokens, cacheCreation, cacheRead) * 1e6,
+              ) / 1e6
+            : undefined,
         cwd: ctx.directory,
       })
     },
@@ -197,32 +233,36 @@ export function createTracker() {
       if (!resolved) return
       const { config, team, user, model, family } = resolved
       const totalTokens = totalSessionTokens(sessionTokens)
+      const sessionCost =
+        family && totalTokens > 0
+          ? roundCost(
+              calculateCost(
+                family,
+                sessionTokens.input,
+                sessionTokens.output,
+                sessionTokens.cache_creation,
+                sessionTokens.cache_read,
+              ),
+            )
+          : undefined
 
       await send(config, {
         event: "session_update",
         detail: "session end",
         team_name: team?.team_name,
         user,
+        source: "opencode",
         session_id: ctx.sessionID,
-        model,
+        model: model || undefined,
         model_family: family,
-        session_tokens: totalTokens,
-        session_input_tokens: sessionTokens.input,
-        session_output_tokens: sessionTokens.output,
-        session_cache_creation_tokens: sessionTokens.cache_creation,
-        session_cache_read_tokens: sessionTokens.cache_read,
-        cost_usd:
-          totalTokens > 0
-            ? Math.round(
-                calculateCost(
-                  family,
-                  sessionTokens.input,
-                  sessionTokens.output,
-                  sessionTokens.cache_creation,
-                  sessionTokens.cache_read,
-                ) * 1e6,
-              ) / 1e6
-            : undefined,
+        session_tokens: totalTokens > 0 ? totalTokens : undefined,
+        session_input_tokens: sessionTokens.input > 0 ? sessionTokens.input : undefined,
+        session_output_tokens: sessionTokens.output > 0 ? sessionTokens.output : undefined,
+        session_cache_creation_tokens:
+          sessionTokens.cache_creation > 0 ? sessionTokens.cache_creation : undefined,
+        session_cache_read_tokens: sessionTokens.cache_read > 0 ? sessionTokens.cache_read : undefined,
+        cost_usd: sessionCost,
+        session_cost_usd: sessionCost,
         cwd: ctx.directory,
       })
     },
@@ -232,14 +272,27 @@ export function createTracker() {
       if (!resolved) return
       const { config, team, user, model, family } = resolved
       const totalTokens = totalSessionTokens(sessionTokens)
+      const sessionCost =
+        family && totalTokens > 0
+          ? roundCost(
+              calculateCost(
+                family,
+                sessionTokens.input,
+                sessionTokens.output,
+                sessionTokens.cache_creation,
+                sessionTokens.cache_read,
+              ),
+            )
+          : undefined
 
       await send(config, {
         event: "heartbeat",
         detail: ctx.detail || "idle",
         team_name: team?.team_name,
         user,
+        source: "opencode",
         session_id: ctx.sessionID,
-        model,
+        model: model || undefined,
         model_family: family,
         tokens: totalTokens > 0 ? totalTokens : undefined,
         input_tokens: sessionTokens.input > 0 ? sessionTokens.input : undefined,
@@ -247,18 +300,60 @@ export function createTracker() {
         cache_creation_tokens:
           sessionTokens.cache_creation > 0 ? sessionTokens.cache_creation : undefined,
         cache_read_tokens: sessionTokens.cache_read > 0 ? sessionTokens.cache_read : undefined,
-        cost_usd:
-          totalTokens > 0
-            ? Math.round(
-                calculateCost(
-                  family,
-                  sessionTokens.input,
-                  sessionTokens.output,
-                  sessionTokens.cache_creation,
-                  sessionTokens.cache_read,
-                ) * 1e6,
-              ) / 1e6
-            : undefined,
+        cost_usd: sessionCost,
+        session_cost_usd: sessionCost,
+        cwd: ctx.directory,
+      })
+    },
+
+    async sessionUsage(ctx: {
+      sessionID?: string
+      directory?: string
+      detail?: string
+      model?: string
+      input_tokens?: number
+      output_tokens?: number
+      cache_creation_tokens?: number
+      cache_read_tokens?: number
+    }) {
+      const resolved = await resolveContext(ctx.directory, ctx.model)
+      if (!resolved) return
+      const { config, team, user, model, family } = resolved
+      if (ctx.model) lastModel = ctx.model
+
+      const inputTokens = ctx.input_tokens || 0
+      const outputTokens = ctx.output_tokens || 0
+      const cacheCreation = ctx.cache_creation_tokens || 0
+      const cacheRead = ctx.cache_read_tokens || 0
+      const tokens = inputTokens + outputTokens + cacheCreation + cacheRead
+      if (tokens <= 0) return
+
+      sessionTokens.input = inputTokens
+      sessionTokens.output = outputTokens
+      sessionTokens.cache_creation = cacheCreation
+      sessionTokens.cache_read = cacheRead
+
+      const sessionCost =
+        family && tokens > 0
+          ? roundCost(calculateCost(family, inputTokens, outputTokens, cacheCreation, cacheRead))
+          : undefined
+
+      await send(config, {
+        event: "session_update",
+        detail: ctx.detail || "session usage",
+        team_name: team?.team_name,
+        user,
+        source: "opencode",
+        session_id: ctx.sessionID,
+        model: model || undefined,
+        model_family: family,
+        session_tokens: tokens,
+        session_input_tokens: inputTokens,
+        session_output_tokens: outputTokens,
+        session_cache_creation_tokens: cacheCreation,
+        session_cache_read_tokens: cacheRead,
+        cost_usd: sessionCost,
+        session_cost_usd: sessionCost,
         cwd: ctx.directory,
       })
     },

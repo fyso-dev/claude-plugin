@@ -16,8 +16,13 @@ The PRICING source-of-truth file can be overridden via the PRICING_FILE
 environment variable; otherwise it resolves relative to this file.
 """
 
+import datetime
+import glob
 import json
 import os
+import re
+import subprocess
+import time
 import urllib.request
 
 
@@ -58,6 +63,30 @@ def infer_model_family(model, default_family="opus"):
     if "haiku" in model:
         return "haiku"
     return default_family
+
+
+USAGE_LIMIT_KEYWORDS = (
+    "usage limit reached",
+    "out of extra usage",
+    "you've reached your usage",
+    "usage limit",
+    "you're out of",
+    "limit has been reached",
+    "no remaining",
+    "out of claude",
+    "monthly usage",
+    "plan limit",
+    "tokens remaining",
+    "run out of",
+    "exhausted your",
+    "quota exceeded",
+    "quota has been",
+)
+
+
+def utc_iso():
+    """Return a timezone-aware UTC timestamp formatted with trailing Z."""
+    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def calculate_cost(family, input_tokens, output_tokens, cache_write, cache_read, pricing):
@@ -181,6 +210,114 @@ def summarize_transcript_lines(lines, tools_dedup_window, text_threshold, text_t
     return tools_used, last_text
 
 
+def synthetic_text_from_entry(entry):
+    """Return text for Claude synthetic transcript entries, else ``''``."""
+    msg = entry.get("message", {})
+    if not isinstance(msg, dict) or msg.get("model") != "<synthetic>":
+        return ""
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        return " ".join(
+            c.get("text", "")
+            for c in content
+            if isinstance(c, dict) and c.get("type") == "text"
+        )
+    if isinstance(content, str):
+        return content
+    return ""
+
+
+def find_usage_limit_text(lines, tail=50):
+    """Return the first recent synthetic usage-limit text and reset time."""
+    for raw_line in lines[-tail:]:
+        try:
+            entry = json.loads(raw_line.strip())
+        except Exception:
+            continue
+        text = synthetic_text_from_entry(entry)
+        if not text:
+            continue
+        lowered = text.lower()
+        if any(keyword in lowered for keyword in USAGE_LIMIT_KEYWORDS):
+            return text, extract_limit_reset_at(text)
+    return "", None
+
+
+def extract_limit_reset_at(text):
+    """Extract a human-readable reset time from Claude limit text when present."""
+    if not text:
+        return None
+    match = re.search(r"resets\s+(\d+(?::\d+)?(?:am|pm))\s+\(([^)]+)\)", text, re.I)
+    if not match:
+        return None
+    return f"{match.group(1)} ({match.group(2)})"
+
+
+def get_claude_account():
+    """Best-effort active Claude account email."""
+    try:
+        result = subprocess.run(
+            ["claude", "auth", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0:
+            return json.loads(result.stdout).get("email", "") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def limit_flag_paths(session_id):
+    session_flag = f"/tmp/fyso-limit-hit-{session_id}" if session_id else ""
+    global_flag = os.path.expanduser("~/.fyso/last-limit-hit")
+    return session_flag, global_flag
+
+
+def flag_is_fresh(path, ttl_seconds):
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        return time.time() - os.path.getmtime(path) < ttl_seconds
+    except OSError:
+        return True
+
+
+def mark_flag(path):
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except Exception:
+        pass
+    try:
+        with open(path, "w"):
+            pass
+    except Exception:
+        pass
+
+
+def should_skip_limit_hit(session_id, ttl_seconds=5 * 3600):
+    session_flag, global_flag = limit_flag_paths(session_id)
+    return flag_is_fresh(session_flag, ttl_seconds) or flag_is_fresh(global_flag, ttl_seconds)
+
+
+def mark_limit_hit(session_id):
+    session_flag, global_flag = limit_flag_paths(session_id)
+    mark_flag(session_flag)
+    mark_flag(global_flag)
+
+
+def cleanup_limit_flags(max_age_seconds=24 * 3600):
+    for old_flag in glob.glob("/tmp/fyso-limit-hit-*"):
+        try:
+            if time.time() - os.path.getmtime(old_flag) > max_age_seconds:
+                os.unlink(old_flag)
+        except OSError:
+            pass
+
+
 def load_config(path=None):
     """Read ``~/.fyso/config.json``. Returns ``dict`` or ``None`` on missing/error."""
     path = path or os.path.expanduser("~/.fyso/config.json")
@@ -203,6 +340,20 @@ def load_team_name(cwd):
     except Exception:
         pass
     return ""
+
+
+def load_team_config(cwd):
+    """Read ``<cwd>/.fyso/team.json``. Returns ``dict`` or ``None``."""
+    if not cwd:
+        return None
+    try:
+        team_path = os.path.join(cwd, ".fyso", "team.json")
+        if os.path.exists(team_path):
+            with open(team_path) as tf:
+                return json.load(tf)
+    except Exception:
+        pass
+    return None
 
 
 _DEBUG_FLAG_PATH = os.path.expanduser("~/.fyso/debug")

@@ -70,6 +70,15 @@ describe("calculateCost", () => {
     )
   })
 
+  it("computes GPT-5.5 cost matching the OpenAI pricing table", () => {
+    const p = PRICING["gpt-5.5"]
+    const expected = p.input + p.output + p.cache_write + p.cache_read
+    expect(calculateCost("gpt-5.5", 1_000_000, 1_000_000, 1_000_000, 1_000_000)).toBeCloseTo(
+      expected,
+      6,
+    )
+  })
+
   it("scales linearly per token across each component", () => {
     expect(calculateCost("opus", 500_000, 0, 0, 0)).toBeCloseTo(7.5, 6)
     expect(calculateCost("sonnet", 0, 100_000, 0, 0)).toBeCloseTo(1.5, 6)
@@ -109,6 +118,7 @@ describe("createTracker token accumulation", () => {
     const tracker = createTracker()
 
     await tracker.toolExecuted({
+      model: "claude-sonnet-4-6",
       input_tokens: 100,
       output_tokens: 50,
       cache_creation_tokens: 10,
@@ -138,6 +148,94 @@ describe("createTracker token accumulation", () => {
     expect(last.session_cache_creation_tokens).toBe(33)
     expect(last.session_cache_read_tokens).toBe(16)
     expect(last.session_tokens).toBe(301 + 132 + 33 + 16)
+    expect(last.cost_usd).toBeGreaterThan(0)
+    expect(last.source).toBe("opencode")
+  })
+
+  it("sends session_cost_usd for session-level events", async () => {
+    const tracker = createTracker()
+
+    await tracker.toolExecuted({
+      model: "claude-sonnet-4-6",
+      input_tokens: 1000,
+      output_tokens: 2000,
+      cache_creation_tokens: 3000,
+      cache_read_tokens: 4000,
+    })
+    await tracker.sessionEnd({ sessionID: "session-1", directory: "/tmp/fyso-e2e" })
+    await tracker.heartbeat({
+      sessionID: "session-1",
+      directory: "/tmp/fyso-e2e",
+      detail: "still active",
+    })
+
+    const calls = vi.mocked(apiRequest).mock.calls
+    const sessionEnd = calls[1][3] as Record<string, any>
+    const heartbeat = calls[2][3] as Record<string, any>
+
+    expect(sessionEnd.event).toBe("session_update")
+    expect(sessionEnd.source).toBe("opencode")
+    expect(sessionEnd.cost_usd).toBeGreaterThan(0)
+    expect(sessionEnd.session_cost_usd).toBe(sessionEnd.cost_usd)
+    expect(heartbeat.event).toBe("heartbeat")
+    expect(heartbeat.source).toBe("opencode")
+    expect(heartbeat.session_cost_usd).toBe(heartbeat.cost_usd)
+  })
+
+  it("marks session_start as opencode source", async () => {
+    const tracker = createTracker()
+
+    await tracker.sessionStart({ sessionID: "session-1", directory: "/tmp/fyso-e2e" })
+
+    const payload = vi.mocked(apiRequest).mock.calls[0][3] as Record<string, string>
+    expect(payload.event).toBe("session_start")
+    expect(payload.source).toBe("opencode")
+    expect(payload.model).toBeUndefined()
+    expect(payload.model_family).toBeUndefined()
+  })
+
+  it("does not invent opus model or zero token fields when OpenCode omits usage metadata", async () => {
+    const tracker = createTracker()
+
+    await tracker.toolExecuted({
+      sessionID: "session-1",
+      directory: "/tmp/fyso-e2e",
+      tool: "fyso-sync-team",
+    })
+
+    const payload = vi.mocked(apiRequest).mock.calls[0][3] as Record<string, unknown>
+    expect(payload.event).toBe("agent_dispatch")
+    expect(payload.source).toBe("opencode")
+    expect(payload.model).toBeUndefined()
+    expect(payload.model_family).toBeUndefined()
+    expect(payload.tokens).toBeUndefined()
+    expect(payload.input_tokens).toBeUndefined()
+    expect(payload.output_tokens).toBeUndefined()
+  })
+
+  it("tracks session usage with real model and tokens from OpenCode step metadata", async () => {
+    const tracker = createTracker()
+
+    await tracker.sessionUsage({
+      sessionID: "session-1",
+      directory: "/tmp/fyso-e2e",
+      model: "openai/gpt-5.5",
+      input_tokens: 100,
+      output_tokens: 20,
+      cache_read_tokens: 300,
+    })
+
+    const payload = vi.mocked(apiRequest).mock.calls[0][3] as Record<string, unknown>
+    expect(payload.event).toBe("session_update")
+    expect(payload.source).toBe("opencode")
+    expect(payload.model).toBe("openai/gpt-5.5")
+    expect(payload.model_family).toBe("gpt-5.5")
+    expect(payload.session_tokens).toBe(420)
+    expect(payload.session_input_tokens).toBe(100)
+    expect(payload.session_output_tokens).toBe(20)
+    expect(payload.session_cache_read_tokens).toBe(300)
+    expect(payload.cost_usd).toBeGreaterThan(0)
+    expect(payload.session_cost_usd).toBe(payload.cost_usd)
   })
 
   it("treats missing token fields as zero", async () => {

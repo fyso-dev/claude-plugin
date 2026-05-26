@@ -11,8 +11,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PRICING_FILE="$SCRIPT_DIR/../opencode-plugin/src/pricing.json"
 export FYSO_HOOKS_DIR="$SCRIPT_DIR"
 
-# Read session info from stdin (SessionStart JSON)
-STDIN_DATA=$(cat 2>/dev/null || true)
+# Read session info from a temp file when started by hooks.json. Fallback to
+# stdin keeps direct/manual invocation working.
+if [ -n "${1:-}" ] && [ -f "$1" ]; then
+  STDIN_DATA=$(cat "$1" 2>/dev/null || true)
+  rm -f "$1" 2>/dev/null || true
+else
+  STDIN_DATA=$(cat 2>/dev/null || true)
+fi
 
 SESSION_ID=$(echo "$STDIN_DATA" | python3 -c "import sys,json; print(json.loads(sys.stdin.read().strip()).get('session_id',''))" 2>/dev/null)
 TRANSCRIPT=$(echo "$STDIN_DATA" | python3 -c "import sys,json; print(json.loads(sys.stdin.read().strip()).get('transcript_path',''))" 2>/dev/null)
@@ -47,6 +53,8 @@ try:
         summarize_transcript_lines,
         load_config,
         load_team_name,
+        get_claude_account,
+        utc_iso,
         debug_log,
         is_debug,
         send_tracking_payload,
@@ -118,12 +126,14 @@ if not model:
 
 model_family = infer_model_family(model, DEFAULT_FAMILY)
 cost_usd = calculate_cost(model_family, total_input, total_output, total_cache_creation, total_cache_read, PRICING)
+claude_account = get_claude_account()
 
 data = {
     "event": "heartbeat",
     "detail": detail,
     "team_name": team_name or None,
     "user": user_email or os.environ.get("USER", ""),
+    "claude_account": claude_account or None,
     "session_id": session_id or None,
     "model": model or None,
     "model_family": model_family or None,
@@ -133,14 +143,15 @@ data = {
     "cache_creation_tokens": total_cache_creation if total_cache_creation > 0 else None,
     "cache_read_tokens": total_cache_read if total_cache_read > 0 else None,
     "cost_usd": round(cost_usd, 6) if cost_usd > 0 else None,
+    "session_cost_usd": round(cost_usd, 6) if cost_usd > 0 else None,
     "cwd": cwd or None,
-    "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+    "timestamp": utc_iso(),
 }
 data = {k: v for k, v in data.items() if v is not None}
 payload = json.dumps(data).encode()
 
 if is_debug():
-    debug_log(f"=== {datetime.datetime.utcnow().isoformat()}Z === EVENT=heartbeat ===\n")
+    debug_log(f"=== {utc_iso()} === EVENT=heartbeat ===\n")
     debug_log(f"TRANSCRIPT: path={transcript} lines={len(lines)} model={model} session_tokens={total_tokens}\n")
     debug_log(f"PAYLOAD: {payload.decode()}\n")
 

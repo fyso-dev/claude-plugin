@@ -12,10 +12,15 @@ vi.mock("../config", () => ({
 import {
   isSafeAgentName,
   resolveAgentFilePath,
+  resolveSkillFilePath,
   yamlString,
   sanitizeMarkdownBody,
+  fetchTeamAgents,
+  fetchTeamSkills,
   syncAgentsToDirectory,
+  syncSkillsToDirectory,
 } from "./sync-team"
+import { apiRequest } from "../config"
 
 const UNSAFE_NAMES = [
   // empty, dot, path traversal
@@ -77,6 +82,19 @@ describe("resolveAgentFilePath", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("resolveSkillFilePath", () => {
+  const baseDir = join(tmpdir(), "fyso-resolve-skills")
+
+  it("returns a path inside the target directory for safe skill names", () => {
+    expect(resolveSkillFilePath(baseDir, "build-app")).toBe(join(baseDir, "build-app.md"))
+  })
+
+  it("returns null for unsafe skill names", () => {
+    expect(resolveSkillFilePath(baseDir, "../evil")).toBeNull()
+    expect(resolveSkillFilePath(baseDir, "skill/name")).toBeNull()
   })
 })
 
@@ -264,5 +282,156 @@ describe("syncAgentsToDirectory", () => {
     const closeIdx = written.indexOf("\n---\n", 4)
     const body = written.slice(closeIdx + 5)
     expect(body).not.toMatch(/^---$/m)
+  })
+})
+
+describe("fetchTeamSkills", () => {
+  beforeEach(() => {
+    vi.mocked(apiRequest).mockReset()
+  })
+
+  it("reads direct, _skill, and skill resolved records", async () => {
+    vi.mocked(apiRequest).mockResolvedValueOnce({
+      data: {
+        items: [
+          { name: "direct", description: "Direct", content: "direct body" },
+          { _skill: { name: "resolved", description: "Resolved", content: "resolved body" } },
+          { skill: { name: "relation", content: "relation body" } },
+        ],
+      },
+    } as never)
+
+    const result = await fetchTeamSkills(
+      { token: "t", tenant_id: "tenant", api_url: "https://api.test" },
+      "team-1",
+    )
+
+    expect(result).toEqual([
+      { name: "direct", description: "Direct", content: "direct body" },
+      { name: "resolved", description: "Resolved", content: "resolved body" },
+      { name: "relation", description: "", content: "relation body" },
+    ])
+    expect(vi.mocked(apiRequest).mock.calls[0][2]).toBe(
+      "/api/entities/team_skills/records?resolve=true&filter.team=team-1",
+    )
+  })
+
+  it("returns no skills when the tenant does not have team_skills", async () => {
+    vi.mocked(apiRequest).mockRejectedValueOnce(
+      new Error("apiRequest GET /api/entities/team_skills/records failed: Entity 'team_skills' not found"),
+    )
+
+    const result = await fetchTeamSkills(
+      { token: "t", tenant_id: "tenant", api_url: "https://api.test" },
+      "team-1",
+    )
+
+    expect(result).toEqual([])
+  })
+
+  it("falls back to skill IDs when relation records are not resolved", async () => {
+    vi.mocked(apiRequest)
+      .mockResolvedValueOnce({
+        data: {
+          items: [{ team: "team-1", skill: "skill-1" }],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          items: [{ id: "skill-1", name: "build", description: "Build", content: "Do work." }],
+        },
+      } as never)
+
+    const result = await fetchTeamSkills(
+      { token: "t", tenant_id: "tenant", api_url: "https://api.test" },
+      "team-1",
+    )
+
+    expect(result).toEqual([{ name: "build", description: "Build", content: "Do work." }])
+    expect(vi.mocked(apiRequest).mock.calls[1][2]).toBe("/api/entities/skills/records")
+  })
+})
+
+describe("fetchTeamAgents", () => {
+  beforeEach(() => {
+    vi.mocked(apiRequest).mockReset()
+  })
+
+  it("falls back to agent IDs when relation records are not resolved", async () => {
+    vi.mocked(apiRequest)
+      .mockResolvedValueOnce({
+        data: {
+          items: [{ team: "team-1", agent: "agent-1" }],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              id: "agent-1",
+              name: "builder",
+              display_name: "Builder",
+              role: "developer",
+              soul: "Builds",
+              system_prompt: "Build safely.",
+            },
+          ],
+        },
+      } as never)
+
+    const result = await fetchTeamAgents(
+      { token: "t", tenant_id: "tenant", api_url: "https://api.test" },
+      "team-1",
+    )
+
+    expect(result).toEqual([
+      {
+        name: "builder",
+        display_name: "Builder",
+        role: "developer",
+        soul: "Builds",
+        system_prompt: "Build safely.",
+      },
+    ])
+    expect(vi.mocked(apiRequest).mock.calls[1][2]).toBe("/api/entities/agents/records")
+  })
+})
+
+describe("syncSkillsToDirectory", () => {
+  let cwd: string
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "fyso-skills-"))
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it("writes team skills into both .claude/skills and .opencode/skills", async () => {
+    const created = await syncSkillsToDirectory(
+      [{ name: "build", description: "Build apps", content: "# Build\n\nDo work." }],
+      cwd,
+    )
+
+    const claudePath = join(cwd, ".claude", "skills", "build.md")
+    const opencodePath = join(cwd, ".opencode", "skills", "build.md")
+    expect(created).toContain(claudePath)
+    expect(created).toContain(opencodePath)
+    expect(readFileSync(claudePath, "utf-8")).toContain('name: "build"')
+    expect(readFileSync(claudePath, "utf-8")).toContain('description: "Build apps"')
+    expect(readFileSync(opencodePath, "utf-8")).toBe("# Build\n\nDo work.\n")
+  })
+
+  it("skips unsafe skill names", async () => {
+    const created = await syncSkillsToDirectory(
+      [{ name: "../evil", description: "", content: "bad" }],
+      cwd,
+    )
+    expect(created).toEqual([])
+    expect(readdirSync(join(cwd, ".claude", "skills"))).toEqual([])
+    expect(readdirSync(join(cwd, ".opencode", "skills"))).toEqual([])
   })
 })
