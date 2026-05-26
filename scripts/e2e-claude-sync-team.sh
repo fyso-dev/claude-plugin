@@ -538,7 +538,7 @@ PYEOF
 }
 
 validate_version_check() {
-  log "validating team version check"
+  log "validating team auto-sync on session start"
   python3 - "$WORKSPACE/.fyso/team.json" <<'PYEOF'
 import json
 import sys
@@ -568,9 +568,19 @@ PYEOF
   }
   restore_fyso_config
 
-  if ! grep -q "nueva version\\|nueva versión\\|/sync-team" "$output"; then
-    fail "version check warning was not observed in Claude output"
-  fi
+  python3 - "$WORKSPACE/.fyso/team.json" "$output" <<'PYEOF'
+import json
+import sys
+
+team_path, output_path = sys.argv[1:3]
+team = json.load(open(team_path, encoding="utf-8"))
+if int(team.get("version") or 0) <= 0:
+    raise SystemExit(f"team auto-sync did not update local version: {team}")
+
+output = open(output_path, encoding="utf-8", errors="replace").read()
+if "actualizado automaticamente" not in output and "actualizado automáticamente" not in output:
+    raise SystemExit("team auto-sync message was not observed in Claude output")
+PYEOF
 }
 
 main() {

@@ -301,6 +301,6 @@ After creating all files, print a summary:
 - A reminder that the user can now use these agents:
   - **Claude Code**: as subagents via the Agent tool or by referencing them
   - **OpenCode**: as project subagents
-- A note that future Claude Code sessions check the saved team version and notify the user when a newer version is available
+- A note that future sessions check the saved team version and automatically refresh local agents/skills when a newer version is available
 
 If no agents were found for the selected team, inform the user and suggest they check the team configuration in the Fyso dashboard at https://agent-ui-sites.fyso.dev.

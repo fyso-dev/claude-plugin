@@ -17,6 +17,7 @@ import {
   sanitizeMarkdownBody,
   fetchTeamAgents,
   fetchTeamSkills,
+  autoSyncTeamIfNeeded,
   syncAgentsToDirectory,
   syncSkillsToDirectory,
 } from "./sync-team"
@@ -433,5 +434,99 @@ describe("syncSkillsToDirectory", () => {
     expect(created).toEqual([])
     expect(readdirSync(join(cwd, ".claude", "skills"))).toEqual([])
     expect(readdirSync(join(cwd, ".opencode", "skills"))).toEqual([])
+  })
+})
+
+describe("autoSyncTeamIfNeeded", () => {
+  let cwd: string
+  const config = { token: "t", tenant_id: "tenant", api_url: "https://api.test" }
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "fyso-auto-sync-"))
+    vi.mocked(apiRequest).mockReset()
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it("does nothing without a saved team", async () => {
+    const result = await autoSyncTeamIfNeeded(config, null, cwd)
+
+    expect(result.synced).toBe(false)
+    expect(vi.mocked(apiRequest)).not.toHaveBeenCalled()
+  })
+
+  it("does nothing when the remote version is not newer", async () => {
+    vi.mocked(apiRequest).mockResolvedValueOnce({
+      data: { id: "team-1", name: "Team", version: 2 },
+    } as never)
+
+    const result = await autoSyncTeamIfNeeded(
+      config,
+      { team_id: "team-1", team_name: "Team", version: 2 },
+      cwd,
+    )
+
+    expect(result).toMatchObject({
+      synced: false,
+      localVersion: 2,
+      remoteVersion: 2,
+      teamName: "Team",
+    })
+    expect(vi.mocked(apiRequest)).toHaveBeenCalledTimes(1)
+  })
+
+  it("syncs agents, skills, prompt, and team metadata when remote version is newer", async () => {
+    vi.mocked(apiRequest)
+      .mockResolvedValueOnce({
+        data: { id: "team-1", name: "Team", prompt: "Updated prompt", version: 3 },
+      } as never)
+      .mockResolvedValueOnce({
+        data: { id: "team-1", name: "Team", prompt: "Updated prompt", version: 3 },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              _agent: {
+                name: "builder",
+                display_name: "Builder",
+                role: "developer",
+                soul: "Builds",
+                system_prompt: "Build safely.",
+              },
+            },
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        data: {
+          items: [{ _skill: { name: "check", description: "Check", content: "# Check" } }],
+        },
+      } as never)
+
+    const result = await autoSyncTeamIfNeeded(
+      config,
+      { team_id: "team-1", team_name: "Team", version: 2 },
+      cwd,
+    )
+
+    expect(result.synced).toBe(true)
+    expect(result.localVersion).toBe(2)
+    expect(result.remoteVersion).toBe(3)
+    expect(readFileSync(join(cwd, ".fyso", "team.json"), "utf-8")).toContain('"version": 3')
+    expect(readFileSync(join(cwd, ".claude", "agents", "builder.md"), "utf-8")).toContain(
+      "Build safely.",
+    )
+    expect(readFileSync(join(cwd, ".opencode", "agents", "builder.md"), "utf-8")).toContain(
+      'color: "success"',
+    )
+    expect(readFileSync(join(cwd, ".claude", "skills", "check.md"), "utf-8")).toContain(
+      "# Check",
+    )
+    expect(readFileSync(join(cwd, "opencode.md"), "utf-8")).toContain("Updated prompt")
   })
 })

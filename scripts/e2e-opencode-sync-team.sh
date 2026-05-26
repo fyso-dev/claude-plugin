@@ -77,6 +77,20 @@ run_opencode_sync() {
   ) | tee "$output"
 }
 
+lower_team_version() {
+  python3 <<'PYEOF'
+import json
+import os
+
+path = os.path.join(os.environ["WORKSPACE"], ".fyso", "team.json")
+data = json.load(open(path, encoding="utf-8"))
+data["version"] = 0
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+PYEOF
+}
+
 snapshot_workspace() {
   local output="$1"
   python3 - "$output" <<'PYEOF'
@@ -222,6 +236,15 @@ if not any(
 ):
     raise SystemExit("missing OpenCode fyso-sync-team agent_dispatch tracking record")
 
+if not any(
+    item.get("event") == "agent_dispatch"
+    and item.get("tool") == "fyso-auto-sync-team"
+    and item.get("session_id")
+    and item.get("team_name") == os.environ["TEAM_NAME"]
+    for item in items
+):
+    raise SystemExit("missing OpenCode fyso-auto-sync-team agent_dispatch tracking record")
+
 bad_model = [
     {"event": item.get("event"), "model": item.get("model"), "session_id": item.get("session_id")}
     for item in items
@@ -298,6 +321,24 @@ main() {
   validate_workspace || fail "workspace validation failed after run-2"
   snapshot_workspace "$WORKSPACE/snapshot-after.json"
   validate_idempotency || fail "idempotency validation failed"
+  lower_team_version || fail "failed to lower local team version for auto-sync validation"
+  run_opencode_sync "auto-sync" "No ejecutes fyso-sync-team. Responde exactamente OK-FYSO-OPENCODE-AUTO-SYNC." || fail "OpenCode auto-sync session failed"
+  validate_workspace || fail "workspace validation failed after auto-sync session"
+  python3 - "$WORKSPACE/.fyso/team.json" <<'PYEOF' || fail "OpenCode auto-sync did not update local team version"
+import json
+import time
+import sys
+
+path = sys.argv[1]
+team = {}
+for _ in range(20):
+    team = json.load(open(path, encoding="utf-8"))
+    if int(team.get("version") or 0) > 0:
+        break
+    time.sleep(0.5)
+else:
+    raise SystemExit(f"team auto-sync did not update local version: {team}")
+PYEOF
   validate_tracking || fail "tracking validation failed"
   log "PASS"
 }

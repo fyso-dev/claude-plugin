@@ -1,4 +1,4 @@
-import { readConfig, readTeamConfig, apiRequest } from "../config"
+import { type FysoConfig, type TeamConfig, readConfig, readTeamConfig, apiRequest } from "../config"
 import { readFile, writeFile, mkdir, rm } from "fs/promises"
 import { existsSync } from "fs"
 import { basename, join, resolve, sep } from "path"
@@ -146,6 +146,20 @@ export async function listTeams(config: NonNullable<Awaited<ReturnType<typeof re
     data?: { items?: Team[] }
   }
   return resp?.data?.items || []
+}
+
+export async function getTeam(
+  config: NonNullable<Awaited<ReturnType<typeof readConfig>>>,
+  teamId: string,
+) {
+  const resp = (await apiRequest(
+    config,
+    "GET",
+    `/api/entities/teams/records/${encodeURIComponent(teamId)}`,
+  )) as {
+    data?: Team
+  } & Team
+  return resp?.data || resp
 }
 
 export async function fetchTeamAgents(
@@ -377,4 +391,81 @@ export async function syncSkillsToDirectory(skills: TeamSkill[], cwd: string): P
   await writeSkillsTo(skills, join(cwd, ".claude", "skills"), renderClaudeSkill, created)
   await writeSkillsTo(skills, join(cwd, ".opencode", "skills"), renderOpencodeSkill, created)
   return created
+}
+
+function numericVersion(value: unknown): number {
+  const parsed = Number(value || 0)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+export async function syncTeamById(
+  config: FysoConfig,
+  teamId: string,
+  cwd: string,
+): Promise<{
+  team: Team
+  agents: Agent[]
+  skills: TeamSkill[]
+  files: string[]
+}> {
+  const team = await getTeam(config, teamId)
+  const agents = await fetchTeamAgents(config, teamId)
+  const skills = await fetchTeamSkills(config, teamId)
+
+  await mkdir(join(cwd, ".fyso"), { recursive: true })
+  await writeFile(
+    join(cwd, ".fyso", "team.json"),
+    JSON.stringify(
+      {
+        team_id: teamId,
+        team_name: team?.name || teamId,
+        version: numericVersion(team?.version),
+        synced_at: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  )
+
+  const agentFiles = await syncAgentsToDirectory(agents, cwd, team?.prompt || undefined)
+  const skillFiles = await syncSkillsToDirectory(skills, cwd)
+  return { team, agents, skills, files: [...agentFiles, ...skillFiles] }
+}
+
+export async function autoSyncTeamIfNeeded(
+  config: FysoConfig,
+  teamConfig: TeamConfig | null,
+  cwd: string,
+): Promise<{
+  synced: boolean
+  localVersion: number
+  remoteVersion: number
+  teamName?: string
+  files: string[]
+}> {
+  if (!teamConfig?.team_id) {
+    return { synced: false, localVersion: 0, remoteVersion: 0, files: [] }
+  }
+
+  const team = await getTeam(config, teamConfig.team_id)
+  const localVersion = numericVersion(teamConfig.version)
+  const remoteVersion = numericVersion(team?.version)
+  if (remoteVersion <= localVersion) {
+    return {
+      synced: false,
+      localVersion,
+      remoteVersion,
+      teamName: team?.name || teamConfig.team_name,
+      files: [],
+    }
+  }
+
+  const result = await syncTeamById(config, teamConfig.team_id, cwd)
+  return {
+    synced: true,
+    localVersion,
+    remoteVersion,
+    teamName: result.team?.name || teamConfig.team_name || teamConfig.team_id,
+    files: result.files,
+  }
 }

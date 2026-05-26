@@ -4,14 +4,10 @@ import { createTracker } from "./tracking"
 import { readConfig, readTeamConfig } from "./config"
 import {
   listTeams,
-  fetchTeamAgents,
-  fetchTeamSkills,
-  syncAgentsToDirectory,
-  syncSkillsToDirectory,
+  syncTeamById,
+  autoSyncTeamIfNeeded,
 } from "./tools/sync-team"
 import { listAgents, createTeam, assignAgents } from "./tools/create-team"
-import { writeFile, mkdir } from "fs/promises"
-import { join } from "path"
 
 const HEARTBEAT_INTERVAL = 5 * 60 * 1000 // 5 minutes
 
@@ -22,6 +18,7 @@ export const FysoPlugin: Plugin = async (ctx) => {
   let recentTools: string[] = []
   const modelBySession = new Map<string, string>()
   const usageSeenBySession = new Map<string, string>()
+  const autoSyncStartedBySession = new Set<string>()
 
   function modelName(model?: { providerID?: string; modelID?: string; id?: string }) {
     if (!model) return undefined
@@ -87,6 +84,25 @@ export const FysoPlugin: Plugin = async (ctx) => {
     })
   }
 
+  async function autoSyncSavedTeam(sessionID?: string) {
+    const config = await readConfig()
+    if (!config) return
+    try {
+      const teamConfig = await readTeamConfig(ctx.directory)
+      const result = await autoSyncTeamIfNeeded(config, teamConfig, ctx.directory)
+      if (result.synced) {
+        await tracker.toolExecuted({
+          sessionID,
+          directory: ctx.directory,
+          tool: "fyso-auto-sync-team",
+          agent: result.teamName,
+        })
+      }
+    } catch {
+      // Session startup must never fail because the team update check failed.
+    }
+  }
+
   async function startTrackingSession(sessionID?: string) {
     currentSessionID = sessionID
     recentTools = []
@@ -95,6 +111,8 @@ export const FysoPlugin: Plugin = async (ctx) => {
       sessionID: currentSessionID,
       directory: ctx.directory,
     })
+
+    await autoSyncSavedTeam(currentSessionID)
 
     if (heartbeatTimer) clearInterval(heartbeatTimer)
     heartbeatTimer = setInterval(async () => {
@@ -180,6 +198,10 @@ export const FysoPlugin: Plugin = async (ctx) => {
     },
 
     "chat.message": async (input) => {
+      if (input.sessionID && !autoSyncStartedBySession.has(input.sessionID)) {
+        autoSyncStartedBySession.add(input.sessionID)
+        void autoSyncSavedTeam(input.sessionID)
+      }
       const model = modelName(input.model)
       if (model) modelBySession.set(input.sessionID, model)
     },
@@ -214,52 +236,24 @@ export const FysoPlugin: Plugin = async (ctx) => {
             return `Available teams:\n\n${list}\n\nCall this tool again with the team_id to sync.`
           }
 
-          // Fetch agents for the selected team
-          const agents = await fetchTeamAgents(config, args.team_id)
-          if (!agents.length) {
+          const synced = await syncTeamById(config, args.team_id, cwd)
+          if (!synced.agents.length) {
             return `No agents found for team ${args.team_id}. Check the team configuration at https://agent-ui-sites.fyso.dev/`
           }
 
-          // Get team info for prompt
-          const teams = await listTeams(config)
-          const team = teams.find((t) => t.id === args.team_id)
-          const teamPrompt = team?.prompt || undefined
-          const skills = await fetchTeamSkills(config, args.team_id)
-
-          // Save team config locally
-          await mkdir(join(cwd, ".fyso"), { recursive: true })
-          await writeFile(
-            join(cwd, ".fyso", "team.json"),
-            JSON.stringify(
-              {
-                team_id: args.team_id,
-                team_name: team?.name || args.team_id,
-                version: team?.version || 0,
-                synced_at: new Date().toISOString(),
-              },
-              null,
-              2,
-            ),
-          )
-
-          // Sync agents
-          const createdAgents = await syncAgentsToDirectory(agents, cwd, teamPrompt)
-          const createdSkills = await syncSkillsToDirectory(skills, cwd)
-          const created = [...createdAgents, ...createdSkills]
-
           const summary = [
-            `Synced **${agents.length}** agents for team "${team?.name || args.team_id}":`,
+            `Synced **${synced.agents.length}** agents for team "${synced.team?.name || args.team_id}":`,
             "",
-            ...agents.map((a) => `- **${a.display_name}** (${a.role})`),
+            ...synced.agents.map((a) => `- **${a.display_name}** (${a.role})`),
             "",
-            `Files created (${created.length}):`,
-            ...created.map((f) => `- ${f}`),
+            `Files created (${synced.files.length}):`,
+            ...synced.files.map((f) => `- ${f}`),
             "",
-            skills.length
-              ? `Synced **${skills.length}** team skills.`
+            synced.skills.length
+              ? `Synced **${synced.skills.length}** team skills.`
               : "No team skills configured.",
             "",
-            teamPrompt
+            synced.team?.prompt
               ? "Team prompt written to `.claude/CLAUDE.md` and `opencode.md`."
               : "No team prompt configured.",
             "",

@@ -56,6 +56,11 @@
           },
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-team-updates.sh",
+            "timeout": 15000
+          },
+          {
+            "type": "command",
             "command": "tmpf=$(mktemp /tmp/fyso-hb-XXXXXX.json); cat > \"$tmpf\" 2>/dev/null; nohup ${CLAUDE_PLUGIN_ROOT}/hooks/heartbeat.sh \"$tmpf\" >/dev/null 2>&1 &",
             "timeout": 3000
           }
@@ -65,11 +70,6 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-team-updates.sh",
-            "timeout": 8000
-          },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/tracking.sh usage_limit_check",
