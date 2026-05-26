@@ -7,6 +7,7 @@ import {
   syncTeamById,
   autoSyncTeamIfNeeded,
 } from "./tools/sync-team"
+import { createAgent, createAgentGuide } from "./tools/create-agent"
 import { listAgents, createTeam, assignAgents } from "./tools/create-team"
 
 const HEARTBEAT_INTERVAL = 5 * 60 * 1000 // 5 minutes
@@ -334,6 +335,66 @@ export const FysoPlugin: Plugin = async (ctx) => {
             "Run /fyso:sync-team (Claude Code) or the fyso-sync-team tool (OpenCode) to pull this team into the current project.",
           ]
           return summary.filter(Boolean).join("\n")
+        },
+      }),
+
+      "fyso-create-agent": tool({
+        description:
+          "Guided Fyso agent creation. Call with no args to get the prompt-writing wizard; call with name, role, soul, and system_prompt to create the agent.",
+        args: {
+          name: tool.schema
+            .string()
+            .optional()
+            .describe("Agent identifier or human name. If omitted, returns the guided wizard."),
+          display_name: tool.schema
+            .string()
+            .optional()
+            .describe("Human-readable agent name shown in Fyso Teams."),
+          role: tool.schema
+            .string()
+            .optional()
+            .describe("Short role label, e.g. developer, qa, reviewer, designer."),
+          soul: tool.schema
+            .string()
+            .optional()
+            .describe("Short identity/mission statement for the agent."),
+          system_prompt: tool.schema
+            .string()
+            .optional()
+            .describe("Operational system prompt with responsibilities, constraints, and output expectations."),
+          status: tool.schema
+            .string()
+            .optional()
+            .describe("Initial status: active, idle, sleeping, or offline. Defaults to active."),
+        },
+        async execute(args) {
+          const config = await readConfig()
+          if (!config) {
+            return "No Fyso credentials found. Run the sync-team skill first to configure credentials at ~/.fyso/config.json, or visit https://agent-ui-sites.fyso.dev/ to get your token."
+          }
+
+          if (!args.name) {
+            return createAgentGuide()
+          }
+
+          const created = await createAgent(config, {
+            name: args.name,
+            display_name: args.display_name,
+            role: args.role,
+            soul: args.soul,
+            system_prompt: args.system_prompt,
+            status: args.status,
+          })
+
+          return [
+            `Agent **${created.display_name}** created (ID: ${created.id}).`,
+            `Name: ${created.name}`,
+            `Role: ${created.role}`,
+            created.soul ? `Soul: ${created.soul}` : "No soul configured.",
+            created.system_prompt ? "System prompt saved." : "No system prompt configured.",
+            "",
+            "Add it to a team from the Fyso dashboard or create a team with fyso-create-team, then run fyso-sync-team to pull it into the current project.",
+          ].join("\n")
         },
       }),
     },
