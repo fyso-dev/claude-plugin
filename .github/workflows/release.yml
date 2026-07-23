@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.claude-plugin/plugin.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read plugin version
+        id: version
+        run: echo "version=$(jq -r .version .claude-plugin/plugin.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify marketplace.json matches
+        run: |
+          plugin_version="${{ steps.version.outputs.version }}"
+          marketplace_version=$(jq -r '.plugins[] | select(.name == "fyso") | .version' .claude-plugin/marketplace.json)
+          if [ "$marketplace_version" != "$plugin_version" ]; then
+            echo "::error::Version mismatch: plugin.json has $plugin_version but marketplace.json has $marketplace_version"
+            exit 1
+          fi
+
+      - name: Publish release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists, nothing to do."
+            exit 0
+          fi
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --generate-notes
