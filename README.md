@@ -8,7 +8,7 @@ Universal Fyso plugin for AI coding agents. Build complete business apps from co
 
 | Component | Count | Description |
 |-----------|-------|-------------|
-| **Skills** | 18 | Slash commands (`/fyso:plan`, `/fyso:build`, etc.) — shared across both platforms |
+| **Skills** | 19 | Slash commands (`/fyso:plan`, `/fyso:build`, etc.) — shared across both platforms |
 | **Agents** | 5 | Specialized subagents (architect, designer, builder, verifier, ui-architect) |
 | **Team Sync** | 1 | Sync Fyso agent teams to local directories |
 | **Tracking** | hooks | Session tracking, agent dispatch, heartbeat |
@@ -62,7 +62,7 @@ irm https://raw.githubusercontent.com/fyso-dev/fyso-plugin/main/setup-opencode.p
 
 This automatically:
 - Copies agents to `.opencode/agents/` (5 subagents)
-- Copies skills to `.opencode/skills/` (18 skills)
+- Copies skills to `.opencode/skills/` (19 skills)
 - Copies `FYSO-REFERENCE.md` to your project
 - Updates `opencode.json` with the plugin and Fyso MCP server
 
@@ -104,7 +104,7 @@ On first use, the MCP server opens an OAuth flow to connect your Fyso account.
 
 ### Full Skill List
 
-All 18 skills are top-level slash commands. Several skills accept subcommands (shown in the second column).
+All 19 skills are top-level slash commands. Several skills accept subcommands (shown in the second column).
 
 | Skill | Subcommands | Description |
 |-------|-------------|-------------|
@@ -118,6 +118,7 @@ All 18 skills are top-level slash commands. Several skills accept subcommands (s
 | `ui` | `plan`, `infer`, `mockup`, `contracts`, `build`, `audit` | UI generation pipeline: discovery, mockups, contracts, code |
 | `api` | `expose`, `spec`, `examples`, `client` | Channels for agents + REST API docs and clients |
 | `setup` | `init`, `mcp` | Initialize a new project and configure MCP |
+| `login` | — | Directory-scoped Fyso / Fyso Teams credentials (`./.fyso/config.json`) |
 | `release` | `deploy`, `publish` | Deploy frontend to sites.fyso.dev or publish to catalog |
 | `new-app` | — | Wizard for new apps with pre-built templates |
 | `listen` | — | Real-time data monitoring |
