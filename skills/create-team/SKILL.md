@@ -10,15 +10,16 @@ Follow these steps to create a new agent team in Fyso and make it available in t
 
 ## Config
 
-Reuses the same credentials as `sync-team`:
+Reuses the same credentials as `sync-team`, with automatic precedence:
 
+- `./.fyso/config.json` -- local, directory-scoped credentials (highest priority; created by `/fyso:login`)
 - `~/.fyso/config.json` -- global credentials (`token`, `tenant_id`, `api_url`)
 
-If the file does not exist, send the user through Step 1 of the `sync-team` skill to set it up, then come back.
+If the local file exists, use it (resolving a `{ "profile": "<name>" }` reference against the global `profiles` map). Otherwise fall back to the global file. **Never ask the user which credentials to use.** If neither file exists, send the user through Step 1 of the `sync-team` skill to set it up, then come back.
 
 ## Step 1 -- Confirm credentials
 
-Read `~/.fyso/config.json`. If missing or `token` is empty, tell the user:
+Resolve credentials as described above (local first, then global) without prompting. If no usable `token` is found, tell the user:
 
 > No encontre tus credenciales de Fyso en `~/.fyso/config.json`. Corre primero `/fyso:sync-team` para guardar tu token, despues volve a este wizard.
 

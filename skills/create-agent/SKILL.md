@@ -10,11 +10,12 @@ Use this wizard when the user wants to create a new agent but does not already h
 
 ## Config
 
-Reuses the same credentials as `sync-team`:
+Reuses the same credentials as `sync-team`, with automatic precedence:
 
+- `./.fyso/config.json` -- local, directory-scoped credentials (highest priority; created by `/fyso:login`)
 - `~/.fyso/config.json` -- global credentials (`token`, `tenant_id`, `api_url`)
 
-If the file does not exist, tell the user:
+If the local file exists, use it (resolving a `{ "profile": "<name>" }` reference against the global `profiles` map). Otherwise fall back to the global file. **Never ask the user which credentials to use.** If neither file yields a token, tell the user:
 
 > No encontre tus credenciales de Fyso en `~/.fyso/config.json`. Corre primero `/fyso:sync-team` para guardar tu token, despues volve a este wizard.
 

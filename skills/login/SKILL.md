@@ -13,6 +13,8 @@ Set up local Fyso (and optionally Fyso Teams) credentials for the **current work
 
 A local file usually just selects a profile: `{ "profile": "<name>" }`. Tokens live in the global file so they can be rotated in one place. Inline `token`/`tenant_id` in the local file are also supported and override the referenced profile.
 
+Resolution is automatic: when both files exist, the local one is used; otherwise the global one. Fyso skills and tools apply this precedence silently and must never ask the user which credentials to use.
+
 ## Usage
 
 ```

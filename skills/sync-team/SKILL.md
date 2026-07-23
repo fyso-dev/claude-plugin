@@ -28,14 +28,20 @@ Team skills are also synced for both platforms:
 
 ## Config structure
 
-This plugin uses two config files:
+This plugin uses these config files:
 
+- `./.fyso/config.json` — **local** (directory-scoped credentials, highest priority; created by `/fyso:login`)
 - `~/.fyso/config.json` — **global** (user credentials, shared across all projects)
 - `.fyso/team.json` — **local** (team info, per project directory)
 
 ## Step 1 — Get the API key
 
-First, check if a saved key exists at `~/.fyso/config.json`. If it does, read it and use the stored `token`, `tenant_id`, and `api_url` values. Do not rewrite this file when saved credentials are reused.
+Resolve credentials with automatic precedence — **never ask the user which credentials to use**:
+
+1. If `./.fyso/config.json` exists, use it. If it contains `{ "profile": "<name>" }`, load that profile's `token`/`tenant_id` from the `profiles` map in the global `~/.fyso/config.json`; inline `token`/`tenant_id` in the local file override the referenced profile.
+2. Otherwise, if a saved key exists at `~/.fyso/config.json`, read it and use the stored `token`, `tenant_id`, and `api_url` values.
+
+When both files exist, the local one wins silently — do NOT prompt the user to choose. Do not rewrite these files when saved credentials are reused.
 
 If no saved config exists, ask the user for their **Token** (Bearer token for API access).
 

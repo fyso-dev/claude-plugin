@@ -51,13 +51,13 @@ Collect the following values. Use what's already available before asking the use
 | Value | Source (in priority order) |
 |-------|---------------------------|
 | `FYSO_TENANT_SLUG` | `--tenant` arg → active session tenant (from `select_tenant`) → ask user |
-| `FYSO_API_KEY` | env var `FYSO_API_KEY` → `token` field in `~/.fyso/config.json` (active plugin session) → ask user |
-| `FYSO_API_URL` | env var `FYSO_API_URL` → `api_url` field in `~/.fyso/config.json` → default `https://app.fyso.dev` |
+| `FYSO_API_KEY` | env var `FYSO_API_KEY` → `token` from `./.fyso/config.json` (local, directory-scoped) → `token` field in `~/.fyso/config.json` (active plugin session) → ask user |
+| `FYSO_API_URL` | env var `FYSO_API_URL` → `api_url` from `./.fyso/config.json` → `api_url` field in `~/.fyso/config.json` → default `https://app.fyso.dev` |
 | `FYSO_ENTITIES` | `--entities` arg → env var `FYSO_ENTITIES` → empty (all events) |
 | `FYSO_AGENT_NAME` | `--name` arg → `.fyso-agent` file → derive from directory name → ask user to confirm |
 
 **Active plugin session lookup:**
-Read `~/.fyso/config.json` once and reuse it for both `FYSO_API_KEY` and `FYSO_API_URL`. The file is JSON with shape `{ "token": "...", "tenant_id": "...", "api_url": "...", ... }` and is written by the Fyso plugin during login (e.g. via `/fyso:sync-team`). If the file does not exist or the `token` field is empty, fall through to the next source. Do NOT prompt the user for an API key when a saved session token is available — the SSE endpoint accepts the same bearer token used by the plugin.
+Check `./.fyso/config.json` (local, directory-scoped, created by `/fyso:login`) first: if it exists, use it — a `{ "profile": "<name>" }` reference resolves against the `profiles` map in `~/.fyso/config.json`, and inline `token`/`tenant_id` override the profile. Only when no local file exists, read `~/.fyso/config.json` and use its top-level values. Each file is JSON with shape `{ "token": "...", "tenant_id": "...", "api_url": "...", ... }` and is written by the Fyso plugin during login (e.g. via `/fyso:login` or `/fyso:sync-team`). Read each file once and reuse it for both `FYSO_API_KEY` and `FYSO_API_URL`. If a file does not exist or the `token` field is empty, fall through to the next source. When both local and global credentials exist, use the local ones silently — never ask the user which to use. Do NOT prompt the user for an API key when a saved session token is available — the SSE endpoint accepts the same bearer token used by the plugin.
 
 **Agent name resolution when not provided:**
 If `--name` is not given and no `.fyso-agent` file exists, derive a suggested name from the current directory basename (e.g. `~/agents/cero/` → suggest `cero`, `~/work/fyso/coordinator` → suggest `coordinator`). Present the suggestion to the user and let them confirm or change it. Do NOT default to anonymous — always suggest a name so messaging works out of the box.
